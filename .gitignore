@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+# Private signing keys never get committed. keys/trusted.json (public keys) does.
+keys/*.key
+gateway/config.json

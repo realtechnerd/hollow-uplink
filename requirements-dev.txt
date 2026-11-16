@@ -1,0 +1,3 @@
+-r requirements.txt
+# Pure-Python MQTT broker for local dev when Docker isn't available (dev/broker.py)
+amqtt>=0.12

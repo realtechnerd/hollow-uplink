@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to gateway/config.json. Maps unit_id to where it sits on the city map. Units not listed still get discovered, as zone UNMAPPED.",
+  "units": {
+    "mqtt-air-01": { "zone": "Z1", "x": 140, "y": 110 },
+    "mqtt-rad-02": { "zone": "Z1", "x": 210, "y": 160 },
+    "mqtt-wx-03":  { "zone": "Z2", "x": 400, "y": 130 },
+    "mqtt-rad-04": { "zone": "Z2", "x": 330, "y": 80 }
+  }
+}

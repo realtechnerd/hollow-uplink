@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hollow Uplink</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Hollow Uplink</h1>
+    <span id="conn" class="pill pill-wait">connecting…</span>
+    <a class="view-link" href="city.html">3D city view →</a>
+    <span class="stats">
+      <span><b id="stat-units">0</b> machines</span>
+      <span><b id="stat-verified">0</b> verified</span>
+      <span><b id="stat-rejected">0</b> rejected</span>
+    </span>
+  </header>
+
+  <main>
+    <section class="panel map-panel">
+      <h2>Surface map</h2>
+      <svg id="map" viewBox="0 0 800 500" role="img" aria-label="Map of surface zones with machine positions"></svg>
+    </section>
+
+    <section class="panel units-panel">
+      <h2>Machines</h2>
+      <table>
+        <thead><tr><th>Unit</th><th>Kind</th><th>Zone</th><th>Latest readings</th><th>Signature</th></tr></thead>
+        <tbody id="units"><tr class="empty"><td colspan="5">Nothing found yet. Waiting for a gateway…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel zones-panel">
+      <h2>Zone verdicts (from the verifier)</h2>
+      <table>
+        <thead><tr><th>Zone</th><th>Verdict</th><th>Score</th><th>Confidence</th><th>Plain language</th></tr></thead>
+        <tbody id="zones"><tr class="empty"><td colspan="5">Waiting for the verifier…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel feed-panel">
+      <h2>Event feed</h2>
+      <ol id="feed"></ol>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+  <script src="config.js"></script>
+  <script src="uplink.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

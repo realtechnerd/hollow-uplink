@@ -1,0 +1,10 @@
+# Local dev broker: MQTT on 1883, WebSockets on 9001 (for the dashboard).
+# Alternative without Docker: python dev/broker.py
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./dev/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hollow Uplink · Surface</title>
+  <link rel="stylesheet" href="city.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <header class="hud hud-top">
+    <div class="brand">
+      <h1>Hollow Uplink</h1>
+      <span class="sub">Surface view · live</span>
+    </div>
+    <span id="conn" class="pill pill-wait">connecting…</span>
+    <div class="stats">
+      <span><b id="stat-units">0</b> machines</span>
+      <span><b id="stat-verified">0</b> verified</span>
+      <span><b id="stat-rejected">0</b> rejected</span>
+      <span><b id="stat-mapped">0%</b> surface mapped</span>
+    </div>
+    <div class="toggles" role="group" aria-label="Map layers">
+      <label><input type="checkbox" id="t-labels" checked> Labels</label>
+      <label><input type="checkbox" id="t-rad" checked> Sensor fields</label>
+      <label><input type="checkbox" id="t-zones" checked> Zone safety</label>
+      <label><input type="checkbox" id="t-rotate" checked> Orbit</label>
+    </div>
+    <a class="view-link" href="index.html">Operator view →</a>
+  </header>
+
+  <aside id="report" class="hud hud-report" aria-label="Surface report">
+    <h2>Surface report</h2>
+    <p class="claim"><span>Directorate says</span>“The surface air kills in minutes.”</p>
+    <p class="claim measured"><span>Machines measured</span><b id="report-summary">Waiting for the verifier…</b></p>
+    <div id="investigations"></div>
+    <ol id="report-zones"></ol>
+  </aside>
+
+  <aside id="panel" class="hud hud-panel" hidden>
+    <button id="panel-close" class="close" aria-label="Close">×</button>
+    <div id="panel-body"></div>
+  </aside>
+
+  <ol id="ticker" class="hud hud-ticker" aria-live="polite"></ol>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <div id="empty" class="hud hud-empty">Nobody has seen the surface in thirty years. Listening for machines…</div>
+
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+  <script src="config.js"></script>
+  <script src="uplink.js"></script>
+  <script type="module" src="city.js"></script>
+</body>
+</html>
