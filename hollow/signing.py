@@ -8,6 +8,7 @@ so Python and JavaScript never need to agree on float formatting or key order.
 
 import base64
 import json
+import time
 from pathlib import Path
 
 from nacl.exceptions import BadSignatureError
@@ -53,6 +54,23 @@ def load_trusted_keys(path: Path | None = None) -> dict[str, str]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+class TrustStore:
+    """Trusted public keys, reloaded from keys/trusted.json when an unknown signer shows up
+    (so adding a teammate's gateway or the operator key doesn't need a restart)."""
+
+    def __init__(self):
+        self.reload()
+
+    def reload(self) -> None:
+        self.keys = load_trusted_keys()
+        self.loaded = time.time()
+
+    def open(self, envelope: dict, role: str | None = None) -> dict:
+        if envelope.get("gateway_id") not in self.keys and time.time() - self.loaded > 5:
+            self.reload()
+        return open_envelope(envelope, self.keys, role)
+
+
 def seal(signer_id: str, signing_key: SigningKey, message: dict) -> dict:
     """Wrap a message in a signed envelope: {gateway_id, payload, signature}."""
     payload = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
@@ -60,8 +78,20 @@ def seal(signer_id: str, signing_key: SigningKey, message: dict) -> dict:
     return {"gateway_id": signer_id, "payload": payload, "signature": b64(signature)}
 
 
-def open_envelope(envelope: dict, trusted: dict[str, str]) -> dict:
+# Signer roles, by key name in keys/trusted.json. Each kind of message is only accepted
+# from its role: a gateway key can't approve commands, the operator key can't forge readings.
+VERIFIER = "verifier"
+OPERATOR = "operator"
+SPECIAL = {VERIFIER, OPERATOR}
+
+
+def role_of(signer: str) -> str:
+    return signer if signer in SPECIAL else "gateway"
+
+
+def open_envelope(envelope: dict, trusted: dict[str, str], role: str | None = None) -> dict:
     """Verify an envelope against trusted public keys and return the parsed message.
+    If role is given ("gateway", "verifier", "operator"), the signer must have that role.
 
     Raises ValueError with a short reason when the envelope is rejected.
     """
@@ -69,6 +99,8 @@ def open_envelope(envelope: dict, trusted: dict[str, str]) -> dict:
     public = trusted.get(signer)
     if public is None:
         raise ValueError(f"untrusted signer {signer!r}")
+    if role and role_of(signer) != role:
+        raise ValueError(f"{signer!r} may not sign this kind of message")
     try:
         VerifyKey(base64.b64decode(public)).verify(
             envelope["payload"].encode("utf-8"), base64.b64decode(envelope["signature"])

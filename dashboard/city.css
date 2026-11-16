@@ -53,6 +53,25 @@ html, body {
 .toggles label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
 .toggles input { accent-color: var(--accent); margin: 0; }
 
+.operator-ctl { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.op-state { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.op-state.on { color: var(--ok); font-weight: 700; }
+.op-btn {
+  padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06); color: var(--text); font: 12px ui-sans-serif, system-ui, sans-serif; cursor: pointer;
+}
+.op-btn:hover { border-color: var(--accent); }
+.op-btn.kill { border-color: var(--bad); color: var(--bad); font-weight: 700; }
+.op-btn.kill.engaged { background: var(--bad); color: #111; }
+.operator-ctl label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.operator-ctl [hidden] { display: none; }
+.kill-banner {
+  position: fixed; z-index: 11; top: 84px; left: 50%; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 8px; background: var(--bad); color: #111;
+  font-weight: 700; font-size: 12px; letter-spacing: 0.04em; text-align: center; max-width: calc(100vw - 24px);
+}
+.kill-banner[hidden] { display: none; }
+
 .view-link { color: var(--accent); text-decoration: none; }
 .view-link:hover { text-decoration: underline; }
 

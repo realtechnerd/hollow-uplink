@@ -507,6 +507,12 @@ function renderInvestigations() {
       if (!scout) {
         btn.textContent = "No scout available";
         btn.disabled = true;
+      } else if (!Uplink.isOperator()) {
+        btn.textContent = `Unlock operator mode to send ${scout.u.id} (${metres(scout)})`;
+        btn.disabled = true;
+      } else if (killEngaged) {
+        btn.textContent = "Kill switch engaged: tasks are refused";
+        btn.disabled = true;
       } else if (requested.has(inv.id)) {
         btn.textContent = `Sent ${scout.u.id}, waiting for its gateway…`;
         btn.disabled = true;
@@ -514,15 +520,17 @@ function renderInvestigations() {
         btn.textContent = `Approve: send ${scout.u.id} to check (${metres(scout)})`;
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
+          const sandbox = $("op-sandbox").checked;
           const cmd = Uplink.sendCommand({
             unitId: scout.u.id,
             type: "investigate",
             params: { x: inv.target.x, y: inv.target.y, investigation: inv.id },
             taskId: `task-${inv.id}`,
+            sandbox,
           });
           if (cmd) {
             requested.add(inv.id);
-            ticker(`Approved: ${scout.u.id} sent to check ${inv.suspect}'s claim (${inv.id})`, "info");
+            ticker(`Approved${sandbox ? " (sandbox)" : ""}: ${scout.u.id} sent to check ${inv.suspect}'s claim (${inv.id})`, "info");
             renderInvestigations();
           }
         });
@@ -596,6 +604,45 @@ function animateInvestigations(now) {
     }
   }
 }
+
+// ---------- operator mode, sandbox, kill switch ----------
+let killEngaged = false;
+
+function renderOperator() {
+  const on = Uplink.isOperator();
+  $("op-state").textContent = on ? "Operator" : "Viewer";
+  $("op-state").classList.toggle("on", on);
+  $("op-unlock").textContent = on ? "Lock" : "Unlock operator";
+  $("op-sandbox-wrap").hidden = !on;
+  $("op-kill").hidden = !on;
+  $("op-kill").textContent = killEngaged ? "Release kill switch" : "Kill switch";
+  $("op-kill").classList.toggle("engaged", killEngaged);
+  $("kill-banner").hidden = !killEngaged;
+  renderInvestigations();
+}
+
+$("op-unlock").addEventListener("click", () => {
+  if (Uplink.isOperator()) {
+    Uplink.lockOperator();
+    ticker("Operator mode locked", "info");
+    renderOperator();
+  } else {
+    $("op-file").click();
+  }
+});
+$("op-file").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file) return;
+  const err = Uplink.unlockOperator(await file.text());
+  ticker(err ? `Operator unlock failed: ${err}` : "Operator mode unlocked: approvals are signed with the operator key", err ? "bad" : "ok");
+  renderOperator();
+});
+$("op-kill").addEventListener("click", () => {
+  const engage = !killEngaged;
+  if (engage && !confirm("Engage the kill switch? Every machine that can move stops and new tasks are refused.")) return;
+  Uplink.setKillswitch(engage);
+});
 
 let cameraTween = null;
 function focusZone(z) {
@@ -801,6 +848,7 @@ function createUnit(id, kind) {
   };
   units.set(id, u);
   $("empty").hidden = true;
+  if (kind === "scout_robot") renderInvestigations();   // a scout may now be available to send
   return u;
 }
 
@@ -987,6 +1035,13 @@ Uplink.start({
   onAck(ack) {
     const cls = ack.result === "rejected" ? "bad" : "info";
     ticker(`${ack.unit_id} ${ack.result} ${ack.task_id}${ack.reason ? ` (${ack.reason})` : ""}`, cls);
+  },
+  onKillswitch(state) {
+    if (!!state.engaged !== killEngaged) {
+      ticker(state.engaged ? "KILL SWITCH ENGAGED: all machines halted" : "Kill switch released", state.engaged ? "bad" : "ok");
+    }
+    killEngaged = !!state.engaged;
+    renderOperator();
   },
   onZoneScore({ zone, msg, ok, reason }) {
     const z = zoneObjs.find((o) => o.id === zone);

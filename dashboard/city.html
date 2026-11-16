@@ -35,8 +35,17 @@
       <label><input type="checkbox" id="t-zones" checked> Zone safety</label>
       <label><input type="checkbox" id="t-rotate" checked> Orbit</label>
     </div>
+    <div class="operator-ctl">
+      <span id="op-state" class="op-state">Viewer</span>
+      <button id="op-unlock" class="op-btn" title="Load keys/operator.key to approve tasks and use the kill switch">Unlock operator</button>
+      <input type="file" id="op-file" accept=".key,text/plain" hidden>
+      <label id="op-sandbox-wrap" hidden title="Approved tasks are acknowledged but never sent to the machine"><input type="checkbox" id="op-sandbox"> Sandbox</label>
+      <button id="op-kill" class="op-btn kill" hidden>Kill switch</button>
+    </div>
     <a class="view-link" href="index.html">Operator view →</a>
   </header>
+
+  <div id="kill-banner" class="kill-banner" hidden>KILL SWITCH ENGAGED · every machine that can move is halted and new tasks are refused</div>
 
   <aside id="report" class="hud hud-report" aria-label="Surface report">
     <h2>Surface report</h2>

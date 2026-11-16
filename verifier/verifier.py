@@ -33,7 +33,7 @@ from collections import defaultdict, deque
 
 import paho.mqtt.client as paho
 
-from hollow import geo, signing, topics
+from hollow import geo, replay, signing, topics
 from hollow.mqtt import connect, make_client, now_iso
 
 from . import scoring
@@ -76,8 +76,10 @@ def disagrees(q: str, value: float, reference: float) -> bool:
 class Verifier:
     def __init__(self):
         self.key = signing.load_signing_key(SIGNER_ID)
-        self.trusted = signing.load_trusted_keys()
-        self.trusted.pop(SIGNER_ID, None)            # never trust our own key for readings
+        self.trust = signing.TrustStore()            # readings only from gateways, commands only from the operator
+        self.guard = replay.ReplayGuard()
+        self.stamper = replay.Stamper()
+        self.replays_rejected = 0
         self.lock = threading.Lock()                 # MQTT thread writes, main thread scores
         self.samples: deque = deque(maxlen=60000)    # (t, unit, x, y, zone, quantity, value)
         self.history = defaultdict(lambda: defaultdict(lambda: deque(maxlen=STUCK_N)))
@@ -100,7 +102,8 @@ class Verifier:
             log.error("Connect failed: %s", reason_code)
             return
         client.subscribe([(topics.READINGS_ALL, 0), (topics.COMMANDS_ALL, 0)])
-        log.info("Verifying readings from %s", ", ".join(sorted(self.trusted)) or "no trusted gateways")
+        gateways = [k for k in self.trust.keys if signing.role_of(k) == "gateway"]
+        log.info("Verifying readings from %s", ", ".join(sorted(gateways)) or "no trusted gateways")
 
     def on_message(self, client, userdata, msg: paho.MQTTMessage):
         with self.lock:
@@ -111,9 +114,11 @@ class Verifier:
 
     def on_command(self, msg) -> None:
         try:
-            cmd = json.loads(msg.payload)
-        except json.JSONDecodeError:
-            return
+            cmd = self.trust.open(json.loads(msg.payload), role=signing.OPERATOR)
+            if not self.guard.check(msg.topic, cmd, retained=msg.retain):
+                return
+        except (ValueError, json.JSONDecodeError, KeyError, TypeError):
+            return  # unsigned, wrongly signed or replayed: not an approval
         inv_id = (cmd.get("params") or {}).get("investigation")
         inv = next((i for i in self.investigations if i["id"] == inv_id), None)
         if inv and cmd.get("status") == "approved" and inv["status"] == "open":
@@ -123,9 +128,15 @@ class Verifier:
 
     def on_reading(self, msg) -> None:
         try:
-            reading = signing.open_envelope(json.loads(msg.payload), self.trusted)
-        except (ValueError, json.JSONDecodeError, KeyError, TypeError):
-            return  # forged or tampered: the dashboard reports these; we just ignore them
+            reading = self.trust.open(json.loads(msg.payload), role="gateway")
+            self.guard.check(f"reading/{reading['unit_id']}", reading)
+        except ValueError as exc:
+            if str(exc).startswith(("replayed", "stale")):
+                self.replays_rejected += 1
+                log.warning("Ignored replayed reading on %s: %s", msg.topic, exc)
+            return  # forged, tampered or replayed: the dashboard reports these; we just ignore them
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return
         unit = reading["unit_id"]
         self.kind[unit] = reading.get("kind", "unknown")
         now = time.time()
@@ -375,9 +386,9 @@ class Verifier:
             scores = [self.score_zone(zone, now, recent) for zone in ZONES]
             public = [{k: v for k, v in i.items() if k != "opened_epoch"} for i in self.investigations[-12:]]
         for score in scores:
-            envelope = signing.seal(SIGNER_ID, self.key, score)
+            envelope = signing.seal(SIGNER_ID, self.key, self.stamper.stamp(score))
             self.client.publish(topics.zone_score(score["zone"]), json.dumps(envelope), retain=True)
-        inv_msg = {"gateway_id": SIGNER_ID, "investigations": public, "timestamp": now_iso()}
+        inv_msg = self.stamper.stamp({"gateway_id": SIGNER_ID, "investigations": public, "timestamp": now_iso()})
         self.client.publish(topics.INVESTIGATIONS, json.dumps(signing.seal(SIGNER_ID, self.key, inv_msg)), retain=True)
 
     def publish_snapshot(self) -> None:
@@ -388,7 +399,7 @@ class Verifier:
                 [gx, gy, h, cls, round(now - seen), scanner]
                 for (gx, gy), (h, cls, seen, scanner) in self.cells.items()
             ]
-        snapshot = {"gateway_id": SIGNER_ID, "cell_size": geo.CELL, "cells": cells, "timestamp": now_iso()}
+        snapshot = self.stamper.stamp({"gateway_id": SIGNER_ID, "cell_size": geo.CELL, "cells": cells, "timestamp": now_iso()})
         self.client.publish(topics.MAP_SNAPSHOT, json.dumps(signing.seal(SIGNER_ID, self.key, snapshot)), retain=True)
 
     def run(self) -> None:

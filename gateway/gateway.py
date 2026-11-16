@@ -14,7 +14,7 @@ from pathlib import Path
 
 import paho.mqtt.client as paho
 
-from hollow import config, geo, signing, topics
+from hollow import config, geo, replay, signing, topics
 from hollow.mqtt import connect, make_client, now_iso
 
 from .adapters import ADAPTERS, Fingerprint
@@ -41,6 +41,9 @@ class Gateway:
         self.handled_tasks: set[str] = set()
         self.done_tasks: set[str] = set()
         self.killswitch = False
+        self.stamper = replay.Stamper()        # boot + seq on everything we sign
+        self.trust = signing.TrustStore()      # who may sign commands (the operator)
+        self.guard = replay.ReplayGuard()
         self.client = make_client(f"gateway-{gateway_id}")
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
@@ -67,17 +70,27 @@ class Gateway:
 
     # ---------- commands: the "down" half of each adapter ----------
     def ack(self, cmd: dict, result: str, reason: str | None = None) -> None:
-        self.client.publish(
-            topics.ack(cmd["unit_id"]),
-            json.dumps({"task_id": cmd.get("task_id"), "unit_id": cmd["unit_id"], "result": result,
-                        "reason": reason, "timestamp": now_iso()}),
-        )
+        ack = self.stamper.stamp({
+            "gateway_id": self.gateway_id, "task_id": cmd.get("task_id"), "unit_id": cmd["unit_id"],
+            "result": result, "reason": reason, "timestamp": now_iso(),
+        })
+        self.client.publish(topics.ack(cmd["unit_id"]), json.dumps(signing.seal(self.gateway_id, self.signing_key, ack)))
         log.info("Task %s for %s: %s%s", cmd.get("task_id"), cmd["unit_id"], result, f" ({reason})" if reason else "")
 
-    def on_command(self, msg: paho.MQTTMessage) -> None:
+    def open_operator_message(self, msg: paho.MQTTMessage) -> dict | None:
+        """Commands and the kill switch must be signed by the operator key and not replayed."""
         try:
-            cmd = json.loads(msg.payload)
-        except json.JSONDecodeError:
+            message = self.trust.open(json.loads(msg.payload), role=signing.OPERATOR)
+            if not self.guard.check(msg.topic, message, retained=msg.retain):
+                return None  # the broker re-sent a retained message we already handled
+            return message
+        except (ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            log.warning("Rejected message on %s: %s", msg.topic, exc)
+            return None
+
+    def on_command(self, msg: paho.MQTTMessage) -> None:
+        cmd = self.open_operator_message(msg)
+        if cmd is None:
             return
         unit_id, task_id = cmd.get("unit_id"), cmd.get("task_id")
         # Only machines at this site, only human-approved tasks, each task once.
@@ -99,10 +112,10 @@ class Gateway:
         self.ack(cmd, "accepted")
 
     def on_killswitch(self, msg: paho.MQTTMessage) -> None:
-        try:
-            engaged = bool(json.loads(msg.payload).get("engaged"))
-        except (json.JSONDecodeError, AttributeError):
+        state = self.open_operator_message(msg)
+        if state is None:
             return
+        engaged = bool(state.get("engaged"))
         if engaged and not self.killswitch:
             log.warning("KILL SWITCH ENGAGED: halting every machine that can move")
             for unit_id, fp in self.known.items():
@@ -164,6 +177,7 @@ class Gateway:
             "status": "online",
             **extras,
         }
+        self.stamper.stamp(reading)
         envelope = signing.seal(self.gateway_id, self.signing_key, reading)
         client.publish(topics.reading(zone, unit_id), json.dumps(envelope))
 

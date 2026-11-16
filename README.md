@@ -31,6 +31,7 @@ Each teammate runs one edge gateway for their "site". It reads only its own site
 | `verifier/` | Flags faulty sensors, scores each zone (outposts / domes / suits / not safe / unknown) with a confidence and a plain-language verdict, and publishes a signed map snapshot for late viewers. Thresholds in `verifier/scoring.py` |
 | `tools/keygen.py` | Makes a gateway key and adds its public key to `keys/trusted.json` |
 | `tools/spoof.py` | Sends forged or tampered readings to show they get rejected |
+| `tools/operator.py` | Operator actions from the command line (approve a task, kill switch), signed with the operator key |
 | `tools/attack.py` | Simulation only: makes a running sensor tell a believable, validly signed lie |
 | `dev/broker.py` | Local MQTT broker with no Docker (`docker compose up` works too) |
 
@@ -43,7 +44,10 @@ python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python -m tools.keygen gw-local
 .\.venv\Scripts\python -m tools.keygen verifier
+.\.venv\Scripts\python -m tools.keygen operator
 ```
+
+The operator key approves tasks and controls the kill switch. Keep `keys/operator.key` private; it is git-ignored and the dev server refuses to serve `.key` files.
 
 Then in six terminals:
 
@@ -69,7 +73,20 @@ Try the attacks:
 .\.venv\Scripts\python -m tools.spoof tampered mqtt-wx-03 --zone Z2 --gateway gw-local
 ```
 
-Both show as rejected in the event feed: signatures catch altered or forged messages.
+Both show as rejected in the event feed: signatures catch altered or forged messages. A third attack records a genuine signed reading and re-sends the exact bytes:
+
+```
+.\.venv\Scripts\python -m tools.spoof replayed scout-01
+```
+
+The signature is valid, but the sequence number has already been seen, so it is rejected as replayed.
+
+**Operator mode.** The 3D view opens read-only. Click **Unlock operator** and pick `keys/operator.key` to approve investigations, use **Sandbox** (tasks are acknowledged but never sent to machines) and the **Kill switch** (every robot halts and new tasks are refused, for everyone, until released). The same actions are scriptable:
+
+```
+.\.venv\Scripts\python -m tools.operator killswitch on
+.\.venv\Scripts\python -m tools.operator killswitch off
+```
 
 **The lie signatures can't catch.** Once Z2 has a verdict (a couple of minutes of scouting), hijack its radiation probe:
 
@@ -93,8 +110,9 @@ The dashboard's `config.js` is public once hosted, so give it its own broker use
 ## What's not built yet
 
 - Modbus and ROS adapters and simulators
-- Kill switch and sandbox buttons in the UI (the gateway already honours both), and zone goals ("make Z4 outpost-ready") with a planner that turns them into tasks for approval
-- Commands are unsigned; anyone with broker credentials could approve a task
+- Zone goals ("make Z4 outpost-ready") with a planner that turns them into tasks for approval
+- Readings are signed at the gateway, not by the device, so a compromised gateway could still lie; investigations are the defence there
+- The local dev broker (amqtt) also delivers unrelated retained messages on subscribe; use Mosquitto or HiveMQ for anything real
 - Structural sensors (tilt and vibration) to flag unstable buildings
 - Discovery events aren't retained, so a dashboard opened later learns about machines from their readings instead
 - The verifier keeps its map in memory; restarting it starts the map over
