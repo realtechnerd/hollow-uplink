@@ -10,6 +10,7 @@ uplink/readings/<zone>/<unit_id>.
 import argparse
 import json
 import logging
+import threading
 from pathlib import Path
 
 import paho.mqtt.client as paho
@@ -18,24 +19,28 @@ from hollow import config, geo, replay, signing, topics
 from hollow.mqtt import connect, make_client, now_iso
 
 from .adapters import ADAPTERS, Fingerprint
+from .adapters.modbus_adapter import ModbusScanner
 
 log = logging.getLogger("gateway")
 HERE = Path(__file__).resolve().parent
 
 
-def load_unit_map() -> dict[str, dict]:
+def load_site_config() -> dict:
     path = HERE / "config.json"
     if not path.exists():
         path = HERE / "config.example.json"
         log.warning("gateway/config.json not found, using config.example.json")
-    return json.loads(path.read_text(encoding="utf-8")).get("units", {})
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class Gateway:
     def __init__(self, gateway_id: str):
         self.gateway_id = gateway_id
         self.signing_key = signing.load_signing_key(gateway_id)
-        self.unit_map = load_unit_map()
+        site = load_site_config()
+        self.unit_map = site.get("units", {})
+        self.modbus_config = site.get("modbus")
+        self.lock = threading.Lock()           # MQTT callbacks and the Modbus poller both feed readings in
         self.known: dict[str, Fingerprint] = {}
         self.protocol_of: dict[str, str] = {}
         self.handled_tasks: set[str] = set()
@@ -51,14 +56,21 @@ class Gateway:
     def run(self) -> None:
         connect(self.client)
         log.info("Gateway %s connecting to %s:%s", self.gateway_id, config.MQTT_HOST, config.MQTT_PORT)
+        if self.modbus_config:
+            ModbusScanner(
+                self.modbus_config.get("scan", []),
+                on_raw=lambda unit_id, address, raw: self.handle_raw("modbus", unit_id, address, raw),
+                poll_s=float(self.modbus_config.get("poll_s", 2)),
+                rescan_s=float(self.modbus_config.get("rescan_s", 30)),
+            ).start()
         self.client.loop_forever()
 
     def on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         if reason_code.is_failure:
             log.error("Connect failed: %s", reason_code)
             return
-        for protocol in ADAPTERS:
-            client.subscribe(topics.raw_wildcard(self.gateway_id, protocol))
+        # Only MQTT-native machines arrive over MQTT; Modbus devices are polled directly.
+        client.subscribe(topics.raw_wildcard(self.gateway_id, "mqtt"))
         client.subscribe([(topics.COMMANDS_ALL, 0), (topics.KILLSWITCH, 0)])
         public = signing.b64(bytes(self.signing_key.verify_key))
         client.publish(
@@ -66,7 +78,7 @@ class Gateway:
             json.dumps({"gateway_id": self.gateway_id, "public_key": public}),
             retain=True,
         )
-        log.info("Listening on %s", topics.raw_wildcard(self.gateway_id))
+        log.info("Listening on %s", topics.raw_wildcard(self.gateway_id, "mqtt"))
 
     # ---------- commands: the "down" half of each adapter ----------
     def ack(self, cmd: dict, result: str, reason: str | None = None) -> None:
@@ -125,29 +137,39 @@ class Gateway:
         self.killswitch = engaged
 
     def on_message(self, client, userdata, msg: paho.MQTTMessage) -> None:
-        if msg.topic.startswith("uplink/commands/"):
-            self.on_command(msg)
-            return
-        if msg.topic == topics.KILLSWITCH:
-            self.on_killswitch(msg)
-            return
-        # surface/raw/<gateway_id>/<protocol>/<unit_id>
+        with self.lock:
+            if msg.topic.startswith("uplink/commands/"):
+                self.on_command(msg)
+                return
+            if msg.topic == topics.KILLSWITCH:
+                self.on_killswitch(msg)
+                return
+        # surface/raw/<gateway_id>/mqtt/<unit_id>
         parts = msg.topic.split("/")
-        if len(parts) != 5:
+        if len(parts) != 5 or parts[3] != "mqtt":
             return
-        protocol, unit_id = parts[3], parts[4]
-        adapter = ADAPTERS.get(protocol)
-        if adapter is None:
-            return
+        unit_id = parts[4]
         try:
             raw = json.loads(msg.payload)
         except (json.JSONDecodeError, UnicodeDecodeError):
             log.warning("%s: unparseable payload", unit_id)
             return
+        self.handle_raw("mqtt", unit_id, msg.topic, raw)
 
+    def handle_raw(self, protocol: str, unit_id: str, address: str, raw) -> None:
+        """Any protocol, after its transport: fingerprint once, then translate, sign, publish."""
+        with self.lock:
+            self._handle_raw(protocol, unit_id, address, raw)
+
+    def _handle_raw(self, protocol: str, unit_id: str, address: str, raw) -> None:
+        adapter = ADAPTERS[protocol]
+        client = self.client
         if unit_id not in self.known:
             self.protocol_of[unit_id] = protocol
-            self.discover(unit_id, protocol, msg.topic, adapter.fingerprint(raw))
+            self.discover(unit_id, protocol, address, adapter.fingerprint(raw))
+        elif self.protocol_of[unit_id] != protocol:
+            log.warning("%s seen on %s but was discovered on %s; ignoring", unit_id, protocol, self.protocol_of[unit_id])
+            return
         fp = self.known[unit_id]
         if fp.kind == "unknown":
             return

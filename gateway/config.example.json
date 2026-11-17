@@ -1,9 +1,17 @@
 {
-  "_comment": "Copy to gateway/config.json. Maps unit_id to where it sits on the city map. Units not listed still get discovered, as zone UNMAPPED.",
+  "_comment": "Copy to gateway/config.json. Maps unit_id to where it sits on the city map. Units not listed still get discovered, as zone UNMAPPED. 'modbus.scan' lists the site's local addresses to scan for Modbus TCP devices (host:port, host:portA-portB or a private CIDR like 192.168.4.0/28:502).",
   "units": {
     "mqtt-air-01": { "zone": "Z1", "x": 140, "y": 110 },
     "mqtt-rad-02": { "zone": "Z1", "x": 210, "y": 160 },
     "mqtt-wx-03":  { "zone": "Z2", "x": 400, "y": 130 },
-    "mqtt-rad-04": { "zone": "Z2", "x": 330, "y": 80 }
+    "mqtt-rad-04": { "zone": "Z2", "x": 330, "y": 80 },
+    "modbus-rad-11": { "zone": "Z3", "x": 610, "y": 140 },
+    "modbus-air-12": { "zone": "Z5", "x": 500, "y": 400 },
+    "modbus-rad-13": { "zone": "Z6", "x": 700, "y": 380 }
+  },
+  "modbus": {
+    "scan": ["127.0.0.1:5020-5025"],
+    "poll_s": 2,
+    "rescan_s": 30
   }
 }

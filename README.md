@@ -13,18 +13,27 @@ The data contract (message formats and topics) lives in the project outline doc.
 ## How it fits together
 
 ```
-simulators ──raw──▶ edge gateway ──signed readings──▶ broker ──▶ dashboard
- (per site)         discover, fingerprint,                       verifies every
-                    translate, sign                              signature
+MQTT machines ───publish──▶ edge gateway ──signed readings──▶ broker ──▶ verifier, dashboards
+Modbus devices ◀──scan+poll──  discover, fingerprint,                     (check every signature)
+ (per site)                    translate, sign
 ```
+
+**Protocols.** Two real protocols today, each with a different discovery problem:
+
+| Protocol | How the gateway finds a machine | How it learns what it is | Translation work |
+| --- | --- | --- | --- |
+| MQTT | Machine publishes on the site's raw topics | Shape of its JSON (which keys it has) | Field names, nesting, °F to °C, units |
+| Modbus TCP | Gateway scans the site's local addresses (private and loopback only, at most 256) | Read Device Identification (function 43/14): vendor and product code | Raw 16-bit registers: scaling, signed values, 32-bit values across two registers, a vendor that stores them word-swapped |
+
+ROS 2 (via rosbridge) is planned; adding it is one new adapter in `gateway/adapters/`.
 
 Each teammate runs one edge gateway for their "site". It reads only its own site's raw topics (`surface/raw/<gateway_id>/...`), so the demo really runs across several states over one cloud broker.
 
 | Path | What it is |
 | --- | --- |
 | `hollow/` | Shared code: config, MQTT client, topic names, Ed25519 signed envelopes |
-| `gateway/` | Edge gateway and protocol adapters (`gateway/adapters/`; a new protocol = one new adapter) |
-| `simulators/` | Fake MQTT machines in their own vendor formats (`--faulty` units), scout robots that map the surface with simulated LiDAR, and `world.py`, the hidden "true" city only simulators can see |
+| `gateway/` | Edge gateway and protocol adapters (`gateway/adapters/`; a new protocol = one new adapter). `modbus_adapter.py` holds the register maps and the scanner |
+| `simulators/` | Fake MQTT machines in their own vendor formats (`--faulty` units), real Modbus TCP servers acting as two vendors' field devices (`modbus_device.py`), scout robots that map the surface with simulated LiDAR, and `world.py`, the hidden "true" city only simulators can see |
 | `dashboard/city.html` | 3D surface view (Three.js). Starts dark; every tile comes from a verified scout survey and fades as its scan ages |
 | `dashboard/index.html` | Operator view: flat map, machine table, event feed |
 | `dashboard/uplink.js` | Shared live-data client: MQTT plus signature checks, used by both views |
@@ -49,16 +58,19 @@ python -m venv .venv
 
 The operator key approves tasks and controls the kill switch. Keep `keys/operator.key` private; it is git-ignored and the dev server refuses to serve `.key` files.
 
-Then in six terminals:
+Then in seven terminals:
 
 ```
 .\.venv\Scripts\python dev\broker.py
+.\.venv\Scripts\python -m simulators.modbus_device
 .\.venv\Scripts\python -m gateway.gateway --gateway gw-local
 .\.venv\Scripts\python -m verifier.verifier
 .\.venv\Scripts\python -m simulators.mqtt_sensor --gateway gw-local --faulty mqtt-rad-02
 .\.venv\Scripts\python -m simulators.scout --gateway gw-local --scouts 3 --tick 0.3
 .\.venv\Scripts\python dev\serve.py
 ```
+
+The Modbus devices listen on 127.0.0.1:5020-5022, each one standing in for a separate box on the site network. The gateway scans the addresses in `gateway/config.json` (`modbus.scan`), asks each device who it is, and re-scans every 30 s, so a device started later still gets found.
 
 `dev/serve.py` is a static server with caching turned off, so a normal reload picks up dashboard edits.
 
@@ -109,7 +121,8 @@ The dashboard's `config.js` is public once hosted, so give it its own broker use
 
 ## What's not built yet
 
-- Modbus and ROS adapters and simulators
+- ROS 2 adapter (planned, via rosbridge; needs Docker for the ROS side)
+- Modbus devices are read-only sensors; writing registers (e.g. switching a vent) isn't supported yet
 - Zone goals ("make Z4 outpost-ready") with a planner that turns them into tasks for approval
 - Readings are signed at the gateway, not by the device, so a compromised gateway could still lie; investigations are the defence there
 - The local dev broker (amqtt) also delivers unrelated retained messages on subscribe; use Mosquitto or HiveMQ for anything real
