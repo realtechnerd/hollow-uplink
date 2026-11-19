@@ -37,6 +37,7 @@ Each teammate runs one edge gateway for their "site". It reads only its own site
 | `dashboard/city.html` | 3D surface view (Three.js). Starts dark; every tile comes from a verified scout survey and fades as its scan ages |
 | `dashboard/index.html` | Operator view: flat map, machine table, event feed |
 | `dashboard/uplink.js` | Shared live-data client: MQTT plus signature checks, used by both views |
+| `dashboard/layers.js` | Map layers shared by both views: the layer list, their colours and legends, and the per-cell measurement store |
 | `verifier/` | Flags faulty sensors, scores each zone (outposts / domes / suits / not safe / unknown) with a confidence and a plain-language verdict, and publishes a signed map snapshot for late viewers. Thresholds in `verifier/scoring.py` |
 | `tools/keygen.py` | Makes a gateway key and adds its public key to `keys/trusted.json` |
 | `tools/spoof.py` | Sends forged or tampered readings to show they get rejected |
@@ -77,6 +78,8 @@ The Modbus devices listen on 127.0.0.1:5020-5022, each one standing in for a sep
 `dev/serve.py` is a static server with caching turned off, so a normal reload picks up dashboard edits.
 
 Open http://localhost:8000/dashboard/city.html. The **Surface report** on the left is the resident's answer: the Directorate's claim, then a plain-language verdict per zone from the verifier. Within seconds the verifier flags `mqtt-rad-02` as faulty (pinned at its maximum, stuck, and contradicted by nearby scouts) and leaves it out. The surface starts dark; the scouts reveal it as they explore (about 40% mapped after a minute, 95% after five). Hover a tile to see when and by whom it was scanned, and click a machine for its readings and signature status. The operator view is at http://localhost:8000/dashboard/.
+
+**Map layers.** The strip on the right of the 3D view (and beside the operator view's map) shows one kind of data at a time: radiation, air quality, temperature, PM2.5, CO₂, humidity, wind, terrain, or how old each scan is. Data layers keep the whole city standing (buildings solid, rubble and trees slightly see-through) with a slightly see-through coloured map on the ground, where each 5 m cell is coloured by the latest value a trusted machine measured there; cells nobody measured stay small and grey, and only the machines that measure that quantity are shown. Hover a cell for the value, who measured it and when. Readings from machines the verifier has flagged are never painted. The verifier includes these per-cell measurements in its signed map snapshot (`measures`), so a page opened late sees everything measured so far.
 
 **Why the map is honest:** the gateway and dashboard never read `simulators/world.py`. They only know what scouts report, in signed readings, so a forged survey is rejected like any forged reading.
 

@@ -59,6 +59,19 @@ main {
 .rec-unknown { color: var(--muted); }
 .sig-warn { color: var(--warn); }
 
+.map-wrap { display: flex; gap: 10px; align-items: flex-start; }
+.map-box { position: relative; flex: 1; min-width: 0; }
+.map-wrap .layer-strip { background: var(--zone); }
+.layer-legend { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; max-width: 360px; }
+.map-tip {
+  position: absolute; z-index: 2; pointer-events: none;
+  padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: rgba(10, 12, 14, 0.92); font-size: 12px; max-width: 240px;
+}
+.map-tip[hidden] { display: none; }
+.map-tip .muted { color: var(--muted); }
+#layer-img { image-rendering: pixelated; }
+
 #map { width: 100%; height: auto; display: block; }
 #map .zone { fill: var(--zone); stroke: var(--line); }
 #map .zone-label { fill: var(--muted); font-size: 14px; font-weight: 600; }

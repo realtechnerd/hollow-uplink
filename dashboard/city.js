@@ -121,14 +121,22 @@ scene.add(outside);
 const N = GW * GH;
 const tileGeo = new THREE.BoxGeometry(1, 1, 1);
 tileGeo.translate(0, 0.5, 0);
-// Per-instance surface kind for the shader: 0 = ground/rubble/water, 1 = building, 2 = damaged building.
+// Per-instance surface kind for the shader: -1 = rubble, 0 = ground/water/vegetation, 1 = building,
+// 2 = damaged building.
 const kindAttr = new THREE.InstancedBufferAttribute(new Float32Array(N), 1);
 tileGeo.setAttribute("aKind", kindAttr);
+// On data layers rubble is drawn by a see-through copy instead (see "data map" below).
+const hideRubble = { value: 0 };
 
 const tileMaterial = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0.04 });
 // Facades: windows, grime and darker ground floors, computed from world position so
 // merged buildings get one continuous pattern instead of stretched textures.
 tileMaterial.onBeforeCompile = (shader) => {
+  shader.uniforms.uHideRubble = hideRubble;
+  shader.fragmentShader = shader.fragmentShader
+    .replace("void main() {", `uniform float uHideRubble;
+      void main() {
+        if (uHideRubble > 0.5 && vKind < -0.5) discard;`);
   shader.vertexShader = shader.vertexShader
     .replace("#include <common>", `#include <common>
       attribute float aKind;
@@ -193,18 +201,104 @@ for (const m of [trunks, canopies]) {
   scene.add(m);
 }
 
+// ---------- data map (data layers and scan age) ----------
+// Bottom to top: the ground (open ground, water, grass) and the buildings stay solid; the
+// coloured data map lies just above the ground, slightly see-through so the ground shows under
+// it; rubble and trees stand over it, also slightly see-through, so data under them still shows.
+const DATA_OPACITY = 0.8;
+const COVER_OPACITY = 0.75;   // rubble and trees
+
+// Transparent things draw in renderOrder: 1 data map, 2 cover depth, 3 cover colour.
+const dataTiles = new THREE.InstancedMesh(
+  tileGeo,
+  new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, opacity: DATA_OPACITY, depthWrite: false }),
+  N,
+);
+dataTiles.frustumCulled = false;
+dataTiles.visible = false;
+dataTiles.renderOrder = 1;
+scene.add(dataTiles);
+
+// Draw only the surveyed cells whose kind passes `test` (a GLSL expression on vKindF).
+function onlyKinds(material, test) {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float aKind;\nvarying float vKindF;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvKindF = aKind;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vKindF;")
+      .replace("void main() {", `void main() {\n  if (!(${test})) discard;`);
+  };
+  material.customProgramCacheKey = () => `kinds:${test}`;
+  return material;
+}
+const RUBBLE_ONLY = "vKindF < -0.5";
+
+// See-through rubble: the same instances as the city tiles, drawn only where the cell is rubble.
+tiles.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
+const rubbleCover = new THREE.InstancedMesh(
+  tileGeo,
+  onlyKinds(new THREE.MeshStandardMaterial({
+    roughness: 0.95, transparent: true, opacity: COVER_OPACITY, depthWrite: false,
+  }), RUBBLE_ONLY),
+  N,
+);
+rubbleCover.instanceMatrix = tiles.instanceMatrix;
+rubbleCover.instanceColor = tiles.instanceColor;
+
+// Overlapping see-through cover would pile up into a blur, so cover first writes only its depth,
+// then draws its colour over that: just its nearest surface tints what is behind it.
+const coverDepthMaterial = () => new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true });
+const coverDepth = [
+  [tiles, onlyKinds(coverDepthMaterial(), RUBBLE_ONLY)],
+  [trunks, coverDepthMaterial()],
+  [canopies, coverDepthMaterial()],
+].map(([m, material]) => {
+  const d = new THREE.InstancedMesh(m.geometry, material, N);
+  d.instanceMatrix = m.instanceMatrix;
+  d.renderOrder = 2;
+  return d;
+});
+const coverColour = [rubbleCover, trunks, canopies];
+for (const m of [rubbleCover, ...coverDepth]) {
+  m.frustumCulled = false;
+  m.visible = false;
+  scene.add(m);
+}
+
+function showDataMap(on) {
+  dataTiles.visible = on;
+  hideRubble.value = on ? 1 : 0;           // solid rubble off, see-through rubble on
+  rubbleCover.visible = on;
+  for (const d of coverDepth) d.visible = on;
+  for (const m of [trunks, canopies]) {
+    m.material.transparent = on;
+    m.material.opacity = on ? COVER_OPACITY : 1;
+    m.material.depthWrite = !on;
+    m.material.needsUpdate = true;
+  }
+  for (const m of coverColour) m.renderOrder = on ? 3 : 0;
+}
+
 const hash = (n) => {
   const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
   return x - Math.floor(x);
 };
+// three.js measures an InstancedMesh's bounds once, on the first raycast. If that happens while
+// the map is still dark (pointer already over the page), every later tile falls outside and
+// can't be hovered. So remeasure before the next hover whenever tiles move.
+let tileBoundsStale = true;
 function markMatrices() {
+  tileBoundsStale = true;
   tiles.instanceMatrix.needsUpdate = true;
+  dataTiles.instanceMatrix.needsUpdate = true;
   trunks.instanceMatrix.needsUpdate = true;
   canopies.instanceMatrix.needsUpdate = true;
   kindAttr.needsUpdate = true;
 }
 function markColours() {
   tiles.instanceColor.needsUpdate = true;
+  dataTiles.instanceColor.needsUpdate = true;
   canopies.instanceColor.needsUpdate = true;
 }
 
@@ -218,6 +312,15 @@ const zoneKnown = new Array(6).fill(0);
 let knownCount = 0;
 const revealing = new Map();                    // index -> reveal start time
 
+// ---------- map layers (shared with the operator view, see layers.js) ----------
+// "Everything" is the full 3D city. Terrain recolours it by surface type. The data layers and
+// scan age lay a coloured map on the ground, with see-through rubble and trees over it.
+const measures = new Layers.MeasureStore();     // latest trusted value per quantity per cell
+let layer = Layers.byId.all;
+let selector = null;
+const isFlat = () => layer.kind !== "all" && layer.kind !== "terrain";   // shows the data map
+const cellMeasured = (i) => layer.kind === "age" || (!!layer.quantity && measures.get(layer.quantity, i) !== null);
+
 const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
 const hiddenMatrix = new THREE.Matrix4().makeTranslation(0, -200, 0);
@@ -225,6 +328,8 @@ const hiddenMatrix = new THREE.Matrix4().makeTranslation(0, -200, 0);
 for (let i = 0; i < N; i++) {
   tiles.setMatrixAt(i, hiddenMatrix);
   tiles.setColorAt(i, tmpColor.set(0x000000));
+  dataTiles.setMatrixAt(i, hiddenMatrix);
+  dataTiles.setColorAt(i, tmpColor.set(0x000000));
   trunks.setMatrixAt(i, hiddenMatrix);
   canopies.setMatrixAt(i, hiddenMatrix);
   canopies.setColorAt(i, tmpColor.set(0x000000));
@@ -246,7 +351,29 @@ const DAMAGED = CLASS_NAMES.indexOf("building_damaged");
 // Two cells belong to the same building when scouts measured the same class and height.
 const sameStructure = (i, j) => cellClass[j] === cellClass[i] && cellHeightM[j] === cellHeightM[i];
 
+// Data-map tile: flat, just above open ground. Cells with no measurement shrink, so "no data"
+// never looks like a value.
+function placeDataTile(i, grow) {
+  const gx = i % GW, gy = Math.floor(i / GW);
+  const size = cellMeasured(i) ? 0.94 : 0.5;
+  dummy.position.set(gx + 0.5 - GW / 2, 0, gy + 0.5 - GH / 2);
+  dummy.rotation.set(0, 0, 0);
+  dummy.scale.set(size, Math.max(0.001, 0.12 * grow), size);
+  dummy.updateMatrix();
+  dataTiles.setMatrixAt(i, dummy.matrix);
+}
+
 function placeTile(i, grow = 1) {
+  poseTile(i, grow);
+  tiles.setMatrixAt(i, dummy.matrix);
+  const ci = cellClass[i];
+  kindAttr.setX(i, ci === DAMAGED ? 2 : IS_STRUCTURE.has(ci) ? 1 : ci === RUBBLE ? -1 : 0);
+  placeTree(i, grow);
+  if (isFlat()) placeDataTile(i, grow);
+}
+
+// The full 3D shape of one surveyed cell, left in `dummy`.
+function poseTile(i, grow) {
   const ci = cellClass[i];
   const s = CLASS_STYLE[CLASS_NAMES[ci]];
   const gx = i % GW, gy = Math.floor(i / GW);
@@ -269,9 +396,6 @@ function placeTile(i, grow = 1) {
   if (ci === RUBBLE) dummy.rotation.set((hash(i + 7) - 0.5) * 0.35, hash(i + 3) * Math.PI, (hash(i + 11) - 0.5) * 0.35);
   dummy.scale.set(x1 - x0, Math.max(0.001, h * grow), z1 - z0);
   dummy.updateMatrix();
-  tiles.setMatrixAt(i, dummy.matrix);
-  kindAttr.setX(i, ci === DAMAGED ? 2 : IS_STRUCTURE.has(ci) ? 1 : 0);
-  placeTree(i, grow);
 }
 
 function placeTree(i, grow) {
@@ -310,8 +434,21 @@ function replaceNeighbours(cells) {
   }
 }
 
+function dataColour(i, now) {
+  if (layer.kind === "age") return Layers.ageColour((now - cellSeen[i]) / 1000);
+  const m = measures.get(layer.quantity, i);
+  return m ? Layers.colourOf(layer, m.v) : Layers.UNMEASURED;
+}
+
 function colourTile(i, now) {
   const ci = cellClass[i];
+  if (isFlat()) dataTiles.setColorAt(i, tmpColor.set(dataColour(i, now)));
+  if (layer.kind === "terrain") {
+    const hex = Layers.terrainColour(CLASS_NAMES[ci]);
+    tiles.setColorAt(i, tmpColor.set(hex));
+    if (ci === VEGETATION) canopies.setColorAt(i, tmpColor.set(hex));
+    return;
+  }
   const s = CLASS_STYLE[CLASS_NAMES[ci]];
   const fresh = 0.38 + 0.62 * THREE.MathUtils.clamp(1 - (now - cellSeen[i]) / 1000 / FRESH_FOR_S, 0, 1);
   const vary = 0.9 + 0.14 * hash(i + 17);  // slight per-cell variation so ground doesn't look flat
@@ -379,6 +516,19 @@ function applySnapshot(snap, now) {
   if (added) ticker(`Loaded ${added} previously surveyed cells from the verifier's map`, "info");
 }
 
+// New or removed measurements: redraw those cells if the current layer shows that quantity.
+function onMeasuresChanged(indices) {
+  if (!layer.quantity || !indices.length) return;
+  const now = performance.now();
+  for (const i of indices) {
+    if (cellClass[i] === -1) continue;
+    if (!revealing.has(i)) placeDataTile(i, 1);
+    dataTiles.setColorAt(i, tmpColor.set(dataColour(i, now)));
+  }
+  markMatrices();
+  markColours();
+}
+
 function surfaceTopAt(mx, my) {
   const gx = Math.floor(mx / CELL), gy = Math.floor(my / CELL);
   if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) return 0;
@@ -418,6 +568,10 @@ const zoneObjs = ZONES.map((z) => {
 
 const RECOMMENDATION_COLOUR = { not_safe: 0xff5a5f, suits: 0xf5a524, domes: 0x8fd3ff, outposts: 0x4cc38a, unknown: 0x6b7068 };
 const REC_LABEL = { outposts: "Outposts", domes: "Domes", suits: "Suits only", not_safe: "Unsafe", unknown: "Unknown" };
+
+// Zone safety tints belong to the full view only; a data layer shows its own colours.
+const zoneTintOpacity = (z) =>
+  $("t-zones").checked && layer.kind === "all" && z.score && z.score.recommendation !== "unknown" ? 0.1 : 0;
 
 function renderZoneLabels() {
   zoneObjs.forEach((z, idx) => {
@@ -459,12 +613,21 @@ function renderReport() {
   }
   const measured = zoneObjs.length - counts.unknown;
   const survivable = counts.outposts + counts.domes + counts.suits;
-  $("report-summary").textContent = measured === 0
+  const summary = measured === 0
     ? "Not enough data yet."
     : `Survivable in ${survivable} of ${measured} measured zone${measured > 1 ? "s" : ""}` +
       (counts.outposts ? `, open-air outposts possible in ${counts.outposts}` : "") +
       (counts.unknown ? `. ${counts.unknown} not measured yet.` : ".");
+  $("report-summary").textContent = summary;
+  $("report-peek").textContent = summary;   // shown in the header while the report is closed
 }
+
+// The report is a dropdown, closed by default; its header keeps the summary visible.
+$("report-toggle").addEventListener("click", () => {
+  const open = $("report-toggle").getAttribute("aria-expanded") !== "true";
+  $("report-toggle").setAttribute("aria-expanded", String(open));
+  $("report-body").hidden = !open;
+});
 
 // ---------- investigations ----------
 let investigations = [];
@@ -487,6 +650,10 @@ function nearestScout(target) {
 function renderInvestigations() {
   const box = $("investigations");
   box.innerHTML = "";
+  // Badge on the closed report: investigations waiting for someone to send a machine.
+  const waiting = investigations.filter((i) => i.status === "open").length;
+  $("report-badge").hidden = waiting === 0;
+  $("report-badge").textContent = `${waiting} to check`;
   // Active ones first, then the latest few resolved, newest first.
   const shown = [...investigations].reverse()
     .filter((i) => i.status !== "expired")
@@ -874,7 +1041,7 @@ function updateFields(u) {
   const r = u.reading?.readings ?? {};
   const pos = u.target;
   // Never paint a hazard from a sensor the verifier has flagged as faulty.
-  const show = $("t-rad").checked && !faulty.has(u.id);
+  const show = $("t-rad").checked && !faulty.has(u.id) && layer.kind === "all";
   u.radField.visible = u.airField.visible = false;
   if (typeof r.radiation_usv_h === "number") {
     const v = r.radiation_usv_h;
@@ -1009,11 +1176,15 @@ Uplink.start({
     }
     setUnitPosition(u, msg);
     updateFields(u);
+    const cell = measures.addReading(msg, now, faulty.has(unitId));
+    if (cell >= 0) onMeasuresChanged([cell]);
     renderStats();
     if (selectedId === unitId) renderPanel();
   },
   onSnapshot(snap) {
-    applySnapshot(snap, performance.now());
+    const now = performance.now();
+    applySnapshot(snap, now);
+    onMeasuresChanged(measures.applySnapshot(snap.measures, now, faulty));
   },
   onInvestigations(list) {
     // The verifier republishes every few seconds; only rebuild the cards when something
@@ -1051,10 +1222,11 @@ Uplink.start({
     const prevRec = z.score?.recommendation;
     z.score = msg;
     rebuildFaulty();
+    onMeasuresChanged(measures.purge(faulty));   // never paint from a sensor the verifier flagged
     for (const [id, why] of faulty) if (!before.has(id)) ticker(`Verifier flagged ${id} as faulty: ${why}`, "bad");
     if (prevRec && prevRec !== msg.recommendation) ticker(`${zone} is now: ${REC_LABEL[msg.recommendation]}`, "info");
     z.tint.material.color.set(RECOMMENDATION_COLOUR[msg.recommendation] ?? 0x8fd3ff);
-    z.tint.material.opacity = $("t-zones").checked && msg.recommendation !== "unknown" ? 0.1 : 0;
+    z.tint.material.opacity = zoneTintOpacity(z);
     units.forEach(updateFields);
     renderReport();
     if (selectedId) renderPanel();
@@ -1069,7 +1241,7 @@ $("t-rad").addEventListener("change", () => units.forEach(updateFields));
 $("t-zones").addEventListener("change", (e) => {
   for (const z of zoneObjs) {
     z.outline.visible = e.target.checked;
-    z.tint.material.opacity = e.target.checked && z.score && z.score.recommendation !== "unknown" ? 0.1 : 0;
+    z.tint.material.opacity = zoneTintOpacity(z);
   }
 });
 $("t-rotate").addEventListener("change", (e) => { controls.autoRotate = e.target.checked; });
@@ -1093,9 +1265,13 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 function pick(e) {
   pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  const unitHit = raycaster.intersectObjects(hitboxes, false)[0];
+  // Machines hidden by the current layer can't be hovered or clicked.
+  const unitHit = raycaster.intersectObjects(hitboxes, false)
+    .find((h) => units.get(h.object.userData.unitId)?.holder.visible);
   if (unitHit) return { unit: units.get(unitHit.object.userData.unitId) };
-  const tileHit = raycaster.intersectObject(tiles, false)[0];
+  if (tileBoundsStale) { tiles.computeBoundingSphere(); dataTiles.computeBoundingSphere(); tileBoundsStale = false; }
+  // On the data map, point at the coloured cell you see through the see-through city.
+  const tileHit = raycaster.intersectObject(isFlat() ? dataTiles : tiles, false)[0];
   if (tileHit && cellClass[tileHit.instanceId] !== -1) return { tile: tileHit.instanceId };
   return null;
 }
@@ -1124,7 +1300,15 @@ function updateTooltip() {
     const i = hit.tile;
     const cls = CLASS_NAMES[cellClass[i]];
     const h = cellHeightM[i] > 0.5 ? ` · ${Math.round(cellHeightM[i])} m` : "";
-    html = `<b>${CLASS_LABEL[cls]}</b>${h}<br><span class="muted">scanned ${fmtAge(performance.now() - cellSeen[i])} by ${esc(cellScanner[i])}</span>`;
+    let measured = "";
+    if (layer.quantity) {
+      const m = measures.get(layer.quantity, i);
+      measured = m
+        ? `<br>${esc(layer.label)}: <b>${esc(Layers.describe(layer, m.v))}</b><br>` +
+          `<span class="muted">measured ${fmtAge(performance.now() - m.seen)} by ${esc(m.unit)}</span>`
+        : `<br><span class="muted">${esc(layer.label)}: not measured here yet</span>`;
+    }
+    html = `<b>${CLASS_LABEL[cls]}</b>${h}${measured}<br><span class="muted">scanned ${fmtAge(performance.now() - cellSeen[i])} by ${esc(cellScanner[i])}</span>`;
     renderer.domElement.style.cursor = "";
   }
   tooltip.innerHTML = html;
@@ -1171,12 +1355,15 @@ function animate() {
   if (now - lastFade > 1000) {
     for (let i = 0; i < N; i++) if (cellClass[i] !== -1) colourTile(i, now);
     markColours();
+    updateLayerCount();
     lastFade = now;
   }
   if (now - lastLabels > 500) { renderZoneLabels(); renderStats(); lastLabels = now; }
   animateInvestigations(now);
 
   for (const u of units.values()) {
+    // On a data layer, only machines that measure that quantity are shown.
+    u.holder.visible = !layer.quantity || typeof u.reading?.readings?.[layer.quantity] === "number";
     // Smooth movement toward the latest reported position; spawn drop on arrival.
     u.holder.position.lerp(u.target, 1 - Math.exp(-dt * 5));
     const spawnK = Math.min(1, (now - u.spawnAt) / 900);
@@ -1230,6 +1417,34 @@ function animate() {
   labelRenderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
+// ---------- layer selector ----------
+function updateLayerCount() {
+  if (!selector) return;
+  const fmt = (n) => n.toLocaleString();
+  if (layer.quantity) selector.setCount(`Measured in ${fmt(measures.count(layer.quantity))} of ${fmt(knownCount)} surveyed cells`);
+  else selector.setCount(layer.kind === "all" ? "" : `${fmt(knownCount)} cells surveyed`);
+}
+
+function applyLayer(next) {
+  layer = next;
+  showDataMap(isFlat());
+  const now = performance.now();
+  for (let i = 0; i < N; i++) {
+    if (cellClass[i] === -1) continue;
+    if (!revealing.has(i)) placeTile(i);
+    colourTile(i, now);
+  }
+  markMatrices();
+  markColours();
+  units.forEach(updateFields);
+  for (const z of zoneObjs) z.tint.material.opacity = zoneTintOpacity(z);
+  updateLayerCount();
+}
+
+selector = Layers.createSelector({
+  mount: $("layers"), legend: $("layer-legend"), storageKey: "hollow.layer.city", onChange: applyLayer,
+});
+
 requestAnimationFrame(animate);
 renderReport();
 

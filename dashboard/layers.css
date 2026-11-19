@@ -1,0 +1,75 @@
+/* Map layer selector and legend, shared by city.html and index.html.
+   Uses each page's own --text, --muted, --line and --accent. */
+
+.layer-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(16, 18, 15, 0.72);
+}
+
+.layer-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.layer-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.layer-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.layer-btn[aria-checked="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(143, 211, 255, 0.14);
+  box-shadow: 0 0 0 1px rgba(143, 211, 255, 0.25) inset;
+}
+
+/* Name of the layer, shown beside the button on hover or keyboard focus */
+.layer-tip {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(10, 12, 10, 0.92);
+  color: var(--text);
+  font: 600 12px ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.layer-btn:hover .layer-tip, .layer-btn:focus-visible .layer-tip { opacity: 1; }
+
+.layer-sep { width: 22px; height: 1px; margin: 2px 0; background: var(--line); }
+
+/* Legend */
+.layer-legend { padding: 10px 12px; font-size: 12px; color: var(--text); }
+.legend-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.legend-head svg { color: var(--muted); flex: none; }
+.legend-head b { font-size: 13px; }
+.legend-head span { margin-left: auto; color: var(--muted); }
+.legend-bands { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.legend-bands li { display: flex; align-items: center; gap: 8px; }
+.legend-bands i, .legend-key i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.legend-bands em { margin-left: auto; color: var(--muted); font-style: normal; font-variant-numeric: tabular-nums; }
+.legend-ramp { display: flex; gap: 1px; height: 12px; border-radius: 3px; overflow: hidden; }
+.legend-ramp i { flex: 1; }
+.legend-ticks { display: flex; justify-content: space-between; margin-top: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.legend-note { margin: 6px 0 0; color: var(--muted); }
+.legend-key { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.legend-key i.unmeasured { width: 8px; height: 8px; margin: 0 2px; background: #2a2b28; outline: 1px solid rgba(255, 255, 255, 0.18); }
+.legend-count { margin: 4px 0 0; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.legend-count:empty { display: none; }

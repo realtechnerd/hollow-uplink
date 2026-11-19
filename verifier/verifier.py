@@ -20,7 +20,8 @@ has measured there, the claim is confirmed or refuted.
 Published (all signed, retained):
   uplink/zones/<zone>/score   zone verdicts
   uplink/investigations       recent investigations
-  uplink/map/snapshot         everything surveyed so far, for late viewers
+  uplink/map/snapshot         everything surveyed so far, for late viewers, plus the latest
+                              measurement of each quantity in each 5 m cell (map layers)
 """
 
 import json
@@ -70,6 +71,10 @@ SENSOR_MAX = {"air_quality_aqi": 500, "radiation_cpm": 9999}
 TOLERANCE = {"radiation_usv_h": (0.5, 5.0), "air_quality_aqi": (40, 2.5), "temp_c": (6, None),
              "gas_vs_clean_air": (0.5, 2.0)}
 ZONES = [f"Z{i}" for i in range(1, geo.ZONE_COLS * geo.ZONE_ROWS + 1)]
+# Quantities the dashboards can show as a map layer, one value per survey cell.
+LAYER_QUANTITIES = (
+    "radiation_usv_h", "air_quality_aqi", "temp_c", "pm25_ugm3", "co2_ppm", "humidity_pct", "wind_kph",
+)
 
 
 def disagrees(q: str, value: float, reference: float) -> bool:
@@ -101,6 +106,8 @@ class Verifier:
         self.next_inv = 1
         self.mapped = defaultdict(set)               # zone -> {(gx, gy)}
         self.cells: dict = {}                        # (gx, gy) -> [height_m, class, seen_epoch, scanner]
+        # (gx, gy) -> quantity -> unit -> (value, epoch): each machine's latest measurement in each cell
+        self.measures = defaultdict(lambda: defaultdict(dict))
         self.client = make_client("verifier")
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
@@ -163,6 +170,11 @@ class Verifier:
             return
         zone = geo.zone_for(loc["x"], loc["y"])
         self.check(unit, loc, values, now)
+        gx, gy = int(loc["x"] // geo.CELL), int(loc["y"] // geo.CELL)
+        if 0 <= gx < geo.GRID_W and 0 <= gy < geo.GRID_H:
+            for q in LAYER_QUANTITIES:
+                if isinstance(values.get(q), (int, float)):
+                    self.measures[(gx, gy)][q][unit] = (float(values[q]), now)
         for q in scoring.QUANTITIES:
             if q in values:
                 self.samples.append((now, unit, loc["x"], loc["y"], zone, q, float(values[q])))
@@ -400,6 +412,25 @@ class Verifier:
         inv_msg = self.stamper.stamp({"gateway_id": SIGNER_ID, "investigations": public, "timestamp": now_iso()})
         self.client.publish(topics.INVESTIGATIONS, json.dumps(signing.seal(SIGNER_ID, self.key, inv_msg)), retain=True)
 
+    def layer_measures(self, now: float) -> dict:
+        """Latest trusted value of each quantity in each cell, for the dashboards' map layers:
+            {"units": [unit_id, ...], "quantities": {quantity: [[gx, gy, value, age_s, unit_index], ...]}}
+        Machines flagged faulty or compromised are left out, so a broken sensor never paints a hazard."""
+        units: list[str] = []
+        index: dict[str, int] = {}
+        out: dict[str, list] = {}
+        for (gx, gy), by_q in self.measures.items():
+            for q, by_unit in by_q.items():
+                trusted = [(t, u, v) for u, (v, t) in by_unit.items() if u not in self.flags]
+                if not trusted:
+                    continue
+                t, u, v = max(trusted)
+                if u not in index:
+                    index[u] = len(units)
+                    units.append(u)
+                out.setdefault(q, []).append([gx, gy, round(v, 3), round(now - t), index[u]])
+        return {"units": units, "quantities": out}
+
     def publish_snapshot(self) -> None:
         """The whole surveyed map, retained, so a viewer who opens the page late sees everything."""
         with self.lock:
@@ -408,7 +439,10 @@ class Verifier:
                 [gx, gy, h, cls, round(now - seen), scanner]
                 for (gx, gy), (h, cls, seen, scanner) in self.cells.items()
             ]
-        snapshot = self.stamper.stamp({"gateway_id": SIGNER_ID, "cell_size": geo.CELL, "cells": cells, "timestamp": now_iso()})
+            measures = self.layer_measures(now)
+        snapshot = self.stamper.stamp({
+            "gateway_id": SIGNER_ID, "cell_size": geo.CELL, "cells": cells, "measures": measures, "timestamp": now_iso(),
+        })
         self.client.publish(topics.MAP_SNAPSHOT, json.dumps(signing.seal(SIGNER_ID, self.key, snapshot)), retain=True)
 
     def run(self) -> None:

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hollow Uplink · Surface</title>
   <link rel="stylesheet" href="city.css">
+  <link rel="stylesheet" href="layers.css">
   <script type="importmap">
     {
       "imports": {
@@ -48,12 +49,25 @@
   <div id="kill-banner" class="kill-banner" hidden>KILL SWITCH ENGAGED · every machine that can move is halted and new tasks are refused</div>
 
   <aside id="report" class="hud hud-report" aria-label="Surface report">
-    <h2>Surface report</h2>
-    <p class="claim"><span>Directorate says</span>“The surface air kills in minutes.”</p>
-    <p class="claim measured"><span>Machines measured</span><b id="report-summary">Waiting for the verifier…</b></p>
-    <div id="investigations"></div>
-    <ol id="report-zones"></ol>
+    <button id="report-toggle" class="report-toggle" type="button" aria-expanded="false" aria-controls="report-body">
+      <span class="report-head">
+        <span class="report-title">Surface report</span>
+        <span id="report-badge" class="report-badge" hidden></span>
+        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </span>
+      <span id="report-peek" class="report-peek">Waiting for the verifier…</span>
+    </button>
+    <div id="report-body" hidden>
+      <p class="claim"><span>Directorate says</span>“The surface air kills in minutes.”</p>
+      <p class="claim measured"><span>Machines measured</span><b id="report-summary">Waiting for the verifier…</b></p>
+      <div id="investigations"></div>
+      <ol id="report-zones"></ol>
+    </div>
   </aside>
+
+  <nav id="layers" class="layer-strip hud-layers"></nav>
+  <aside id="layer-legend" class="hud layer-legend hud-legend" aria-live="polite"></aside>
 
   <aside id="panel" class="hud hud-panel" hidden>
     <button id="panel-close" class="close" aria-label="Close">×</button>
@@ -70,6 +84,7 @@
   <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
   <script src="config.js"></script>
   <script src="uplink.js"></script>
+  <script src="layers.js"></script>
   <script type="module" src="city.js"></script>
 </body>
 </html>

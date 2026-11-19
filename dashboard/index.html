@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hollow Uplink</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="layers.css">
 </head>
 <body>
   <header>
@@ -21,7 +22,14 @@
   <main>
     <section class="panel map-panel">
       <h2>Surface map</h2>
-      <svg id="map" viewBox="0 0 800 500" role="img" aria-label="Map of surface zones with machine positions"></svg>
+      <div class="map-wrap">
+        <div class="map-box">
+          <svg id="map" viewBox="0 0 800 500" role="img" aria-label="Map of surface zones with machine positions"></svg>
+          <div id="map-tip" class="map-tip" hidden></div>
+        </div>
+        <nav id="layers" class="layer-strip"></nav>
+      </div>
+      <div id="layer-legend" class="layer-legend" aria-live="polite"></div>
     </section>
 
     <section class="panel units-panel">
@@ -50,6 +58,7 @@
   <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
   <script src="config.js"></script>
   <script src="uplink.js"></script>
+  <script src="layers.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
