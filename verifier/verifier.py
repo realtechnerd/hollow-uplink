@@ -44,6 +44,8 @@ SIGNER_ID = "verifier"
 WINDOW_S = 60             # neighbour cross-checks only use readings this recent
 SCORE_WINDOW_S = 600      # zone conditions are judged on the last 10 minutes...
 FRESH_S = 120             # ...preferring each block's readings from the last 2 minutes
+# Gas and smoke come and go in seconds, so a gas sensor's block is judged on its last 10 s only.
+FRESH_S_BY_Q = {"gas_vs_clean_air": 10}
 NEIGHBOR_RADIUS = 30      # map units (15 m); real hazards fall off with distance, so stay close
 MIN_NEIGHBOR_MACHINES = 2 # one other machine is not enough to overrule a sensor
 DISAGREE_STREAK = 3       # a disagreement must persist this many readings (moving scouts cross gradients)
@@ -55,11 +57,18 @@ SNAPSHOT_EVERY_S = 10
 INVESTIGATE_RADIUS = 40   # map units (20 m) around the claim that count as "checking the spot"
 INVESTIGATION_SAMPLES = 3 # independent readings needed to settle an investigation
 INVESTIGATION_TTL_S = 900
-HAZARDS = ("radiation_usv_h", "air_quality_aqi")
+HAZARDS = ("radiation_usv_h", "air_quality_aqi", "gas_vs_clean_air")
+# Hazards another machine could be sent to re-measure. Only fixed gas sensors measure gas,
+# so a gas reading can't be investigated (it would sit "disputed" until it expired).
+CHECKABLE = ("radiation_usv_h", "air_quality_aqi")
+# Real low-resolution hardware legitimately repeats itself (a DHT11 reports whole degrees),
+# so the "stuck" check would flag it in a calm room. Scouts repeat less because they move.
+NO_STUCK_CHECK = ("scout_robot", "field_station")
 SENSOR_MAX = {"air_quality_aqi": 500, "radiation_cpm": 9999}
 # quantity -> (absolute tolerance, ratio tolerance or None). Generous on purpose:
 # we want to catch broken sensors, not argue with a real hotspot.
-TOLERANCE = {"radiation_usv_h": (0.5, 5.0), "air_quality_aqi": (40, 2.5), "temp_c": (6, None)}
+TOLERANCE = {"radiation_usv_h": (0.5, 5.0), "air_quality_aqi": (40, 2.5), "temp_c": (6, None),
+             "gas_vs_clean_air": (0.5, 2.0)}
 ZONES = [f"Z{i}" for i in range(1, geo.ZONE_COLS * geo.ZONE_ROWS + 1)]
 
 
@@ -175,7 +184,7 @@ class Verifier:
         for q, maximum in SENSOR_MAX.items():
             if q in values and values[q] >= maximum:
                 reasons.append(f"{q} pinned at the sensor maximum ({values[q]:g})")
-        if self.kind.get(unit) != "scout_robot":  # moving units naturally repeat less
+        if self.kind.get(unit) not in NO_STUCK_CHECK:
             for q in scoring.QUANTITIES:
                 hist = self.history[unit][q]
                 if len(hist) == STUCK_N and len(set(hist)) == 1:
@@ -228,7 +237,7 @@ class Verifier:
         for q in scoring.QUANTITIES:
             per_block = []
             for readings in by_block[q].values():
-                fresh = [v for t, v in readings if now - t < FRESH_S]
+                fresh = [v for t, v in readings if now - t < FRESH_S_BY_Q.get(q, FRESH_S)]
                 per_block.append(statistics.median(fresh or [v for _, v in readings]))
             if per_block:
                 measured[q] = round(max(per_block) if q in HAZARDS else statistics.median(per_block), 3)
@@ -247,7 +256,7 @@ class Verifier:
         # How much of the zone has actually had its air and radiation measured?
         blocks = {self.block_of(s) for s in zone_recent}
         spatial = min(1.0, len(blocks) / (zone_cells / COVER_BLOCK ** 2))
-        coverage = len(measured) / len(scoring.QUANTITIES)
+        coverage = len(set(measured) & set(scoring.CORE_QUANTITIES)) / len(scoring.CORE_QUANTITIES)
         confidence = round(0.6 * spatial + 0.25 * coverage + 0.15 * min(1, len(units) / 3), 2)
 
         score, limiting = None, None
@@ -294,7 +303,7 @@ class Verifier:
             zone_recent = [s for s in recent if s[4] == zone and s[1] not in self.flags]
             by_unit = defaultdict(list)
             for s in zone_recent:
-                if s[5] in HAZARDS:
+                if s[5] in CHECKABLE:
                     by_unit[(s[1], s[5])].append(s)
             for (unit, q), mine in by_unit.items():
                 if unit in self.corroborated or any(i["suspect"] == unit for i in self.investigations):

@@ -6,8 +6,13 @@ can see exactly how a verdict was reached.
 
 import math
 
-QUANTITIES = ("radiation_usv_h", "air_quality_aqi", "temp_c")
-LABEL = {"radiation_usv_h": "radiation", "air_quality_aqi": "air quality", "temp_c": "heat"}
+# Every zone is expected to be measured for these; confidence counts how many of them are covered.
+CORE_QUANTITIES = ("radiation_usv_h", "air_quality_aqi", "temp_c")
+# gas_vs_clean_air comes from the real MQ-2 gas sensor (hardware/uno_station): how many times its
+# signal has risen above the clean air it measured at start-up. Only zones with one get it.
+QUANTITIES = CORE_QUANTITIES + ("gas_vs_clean_air",)
+LABEL = {"radiation_usv_h": "radiation", "air_quality_aqi": "air quality", "temp_c": "heat",
+         "gas_vs_clean_air": "gas or smoke"}
 
 
 def _interp(x: float, points: list[tuple[float, float]]) -> float:
@@ -29,6 +34,9 @@ def subscore(quantity: str, value: float) -> float:
         return _interp(value, [(50, 100), (100, 80), (150, 60), (200, 40), (300, 15), (400, 0)])
     if quantity == "temp_c":
         return _interp(abs(value - 22), [(8, 100), (18, 60), (28, 20), (38, 0)])
+    if quantity == "gas_vs_clean_air":
+        # MQ-2 output drifts ~20% on its own; smoke or solvent vapour pushes it several times higher.
+        return _interp(value, [(1.5, 100), (2, 80), (3, 50), (4, 25), (6, 0)])
     return 100.0
 
 
@@ -63,6 +71,10 @@ def describe(quantity: str, value: float) -> str:
         return f"air {word} (AQI {value:.0f})"
     if quantity == "temp_c":
         return f"{value:.0f} °C"
+    if quantity == "gas_vs_clean_air":
+        word = ("normal" if value <= 1.5 else "slightly raised" if value <= 2 else "elevated" if value <= 3 else
+                "high" if value <= 4 else "dangerous")
+        return f"gas or smoke {word} ({value:.1f}× clean air)"
     return f"{quantity} {value}"
 
 

@@ -1,3 +1,4 @@
 paho-mqtt>=2.1
 pynacl>=1.5
 pymodbus>=3.16,<4
+pyserial>=3.5

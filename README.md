@@ -40,7 +40,9 @@ Each teammate runs one edge gateway for their "site". It reads only its own site
 | `verifier/` | Flags faulty sensors, scores each zone (outposts / domes / suits / not safe / unknown) with a confidence and a plain-language verdict, and publishes a signed map snapshot for late viewers. Thresholds in `verifier/scoring.py` |
 | `tools/keygen.py` | Makes a gateway key and adds its public key to `keys/trusted.json` |
 | `tools/spoof.py` | Sends forged or tampered readings to show they get rejected |
-| `tools/operator.py` | Operator actions from the command line (approve a task, kill switch), signed with the operator key |
+| `tools/operator.py` | Operator actions from the command line (approve a task, kill switch, switch a relay), signed with the operator key |
+| `hardware/` | The one real machine: an Arduino Uno field station (gas, climate, hatch, relay). Wiring, setup and demo script in `hardware/README.md` |
+| `tools/uno_bridge.py` | Forwards the Uno's USB serial lines to the site's MQTT network and commands back (`--fake` without a board) |
 | `tools/attack.py` | Simulation only: makes a running sensor tell a believable, validly signed lie |
 | `dev/broker.py` | Local MQTT broker with no Docker (`docker compose up` works too) |
 

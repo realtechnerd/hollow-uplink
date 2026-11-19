@@ -3,12 +3,15 @@
     python -m tools.spoof forged   mqtt-rad-02 --zone Z1   # signed with a key nobody trusts
     python -m tools.spoof tampered mqtt-rad-02 --zone Z1   # a real gateway's envelope, edited after signing
     python -m tools.spoof replayed mqtt-rad-02             # a genuine signed reading, recorded and re-sent
+    python -m tools.spoof command  uno-gas-01              # an "approved" relay command signed with a fake operator key
 
 "forged" impersonates the gateway with a fresh random key.
 "tampered" needs the real gateway's key file locally, to stand in for a reading
 intercepted in transit and edited (radiation set to a lethal value).
 "replayed" records a real, validly signed reading off the broker and sends the exact
 same bytes again a few seconds later. The signature is genuine; the sequence number gives it away.
+"command" claims to be the operator switching a machine's relay on; the gateway refuses it because
+the signature isn't the operator's, so nothing reaches the machine (watch the Arduino's LED).
 """
 
 import argparse
@@ -60,7 +63,7 @@ def record_one(client, unit_id: str, timeout: float = 15) -> tuple[str, bytes]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["forged", "tampered", "replayed"])
+    parser.add_argument("mode", choices=["forged", "tampered", "replayed", "command"])
     parser.add_argument("unit_id")
     parser.add_argument("--zone", default="Z1")
     parser.add_argument("--gateway", default=config.GATEWAY_ID)
@@ -71,7 +74,15 @@ def main() -> None:
     connect(client)
     client.loop_start()
 
-    if args.mode == "replayed":
+    if args.mode == "command":
+        command = replay.Stamper().stamp({
+            "task_id": f"task-spoof-{int(time.time())}", "unit_id": args.unit_id, "type": "relay",
+            "params": {"on": True}, "status": "approved", "sandbox": False,
+            "requested_by": "cli", "approved_by": "operator", "gateway_id": signing.OPERATOR, "timestamp": now_iso(),
+        })
+        envelope = signing.seal(signing.OPERATOR, SigningKey.generate(), command)
+        topic, payload = topics.command(args.unit_id), json.dumps(envelope)
+    elif args.mode == "replayed":
         topic, payload = record_one(client, args.unit_id)
         print(f"Recorded a genuine signed reading from {args.unit_id}; re-sending it in {args.delay:g} s")
         time.sleep(args.delay)
@@ -89,7 +100,7 @@ def main() -> None:
     client.publish(topic, payload).wait_for_publish()
     client.loop_stop()
     client.disconnect()
-    print(f"Sent {args.mode} reading for {args.unit_id}")
+    print(f"Sent {args.mode} {'' if args.mode == 'command' else 'reading '}for {args.unit_id}")
 
 
 if __name__ == "__main__":

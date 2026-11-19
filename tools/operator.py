@@ -4,6 +4,7 @@ Same messages the 3D view sends in operator mode; handy for scripting a demo.
     python -m tools.operator investigate inv-0001 --unit scout-02 --x 470 --y 420
     python -m tools.operator killswitch on
     python -m tools.operator killswitch off
+    python -m tools.operator relay uno-gas-01 on     # the Arduino's relay (hardware/uno_station)
 
 Create the key once with: python -m tools.keygen operator
 """
@@ -27,6 +28,9 @@ def main() -> None:
     inv.add_argument("--sandbox", action="store_true")
     ks = sub.add_parser("killswitch", help="engage or release the kill switch")
     ks.add_argument("state", choices=["on", "off"])
+    rl = sub.add_parser("relay", help="switch a field station's relay")
+    rl.add_argument("unit")
+    rl.add_argument("state", choices=["on", "off"])
     args = parser.parse_args()
 
     key = signing.load_signing_key(signing.OPERATOR)
@@ -37,6 +41,13 @@ def main() -> None:
             "task_id": f"task-{args.investigation}", "unit_id": args.unit, "type": "investigate",
             "params": {"x": args.x, "y": args.y, "investigation": args.investigation},
             "status": "approved", "sandbox": args.sandbox, "requested_by": "cli", "approved_by": "operator",
+        }
+    elif args.action == "relay":
+        topic, retain = topics.command(args.unit), False
+        message = {
+            "task_id": f"task-relay-{args.unit}-{int(time.time() * 1000)}", "unit_id": args.unit, "type": "relay",
+            "params": {"on": args.state == "on"},
+            "status": "approved", "sandbox": False, "requested_by": "cli", "approved_by": "operator",
         }
     else:
         topic, retain = topics.KILLSWITCH, True
@@ -51,7 +62,7 @@ def main() -> None:
     time.sleep(0.3)
     client.loop_stop()
     client.disconnect()
-    print(f"Signed and sent: {args.action} {getattr(args, 'state', '') or args.investigation}")
+    print(f"Signed and sent: {args.action} {getattr(args, 'unit', '')} {getattr(args, 'state', '') or args.investigation}")
 
 
 if __name__ == "__main__":

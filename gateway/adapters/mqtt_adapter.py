@@ -24,6 +24,7 @@ RULES = [
     ("radiation_probe", {"cpm", "dose_rate"}, "has Geiger count (cpm) and dose_rate"),
     ("weather_mast", {"obs.temperature_f", "obs.humidity"}, "nested obs block with temperature_f and humidity"),
     ("air_sensor", {"pm25", "co2_ppm", "aqi"}, "has pm25, co2_ppm and aqi fields"),
+    ("field_station", {"gas.adc", "gas.base", "gas.warm"}, "raw gas ADC counts with its own clean-air baseline"),
 ]
 
 # kind -> {raw flattened key: (common key, converter)}
@@ -48,6 +49,15 @@ TRANSLATIONS = {
         "env.rad": ("radiation_usv_h", float),
         "env.aqi": ("air_quality_aqi", float),
         "env.temp": ("temp_c", float),
+    },
+    # BX-1 field station (the real Arduino in hardware/uno_station). Gas is handled in translate().
+    "field_station": {
+        "dht.t": ("temp_c", float),
+        "ds.t": ("temp_c", float),          # 18B20 (±0.5 °C); listed after dht.t so it wins when present
+        "dht.rh": ("humidity_pct", float),
+        "light": ("light_pct", lambda adc: round(float(adc) / 10.23, 1)),
+        "hatch": ("hatch_open", float),
+        "relay": ("relay_on", float),
     },
 }
 
@@ -94,6 +104,15 @@ class MqttAdapter:
         # Radiation probes may report in other units; only trust uSv/h as-is.
         if kind == "radiation_probe" and raw.get("unit") not in (None, "uSv/h"):
             readings.pop("radiation_usv_h", None)
+        if kind == "field_station":
+            # The MQ-2 only gives a raw voltage; the meaningful number is how far it has risen above the
+            # clean air it measured after warm-up. Before warm-up finishes there's nothing to report.
+            gas = raw.get("gas") or {}
+            try:
+                if not gas.get("warm") and float(gas["base"]) > 0:
+                    readings["gas_vs_clean_air"] = round(float(gas["adc"]) / float(gas["base"]), 2)
+            except (KeyError, TypeError, ValueError):
+                pass
         return readings
 
     def extras(self, kind: str, raw: Any) -> dict[str, Any]:
@@ -116,7 +135,14 @@ class MqttAdapter:
         return out
 
     def command(self, kind: str, cmd: dict) -> dict | None:
-        """SCOUT-MK3 vendor commands: {"op": "goto", "x", "y", "ref"} and {"op": "halt", "ref"}."""
+        """SCOUT-MK3 vendor commands: {"op": "goto", "x", "y", "ref"} and {"op": "halt", "ref"}.
+        BX-1 field station: {"op": "relay", "on": bool, "ref"}; a stop (kill switch) switches it off."""
+        if kind == "field_station":
+            if cmd.get("type") == "stop":
+                return {"op": "relay", "on": False, "ref": cmd.get("task_id")}
+            if cmd.get("type") == "relay":
+                return {"op": "relay", "on": bool((cmd.get("params") or {}).get("on")), "ref": cmd.get("task_id")}
+            return None
         if kind != "scout_robot":
             return None
         params = cmd.get("params") or {}

@@ -7,7 +7,8 @@
     "mqtt-rad-04": { "zone": "Z2", "x": 330, "y": 80 },
     "modbus-rad-11": { "zone": "Z3", "x": 610, "y": 140 },
     "modbus-air-12": { "zone": "Z5", "x": 500, "y": 400 },
-    "modbus-rad-13": { "zone": "Z6", "x": 700, "y": 380 }
+    "modbus-rad-13": { "zone": "Z6", "x": 700, "y": 380 },
+    "uno-gas-01": { "zone": "Z5", "x": 430, "y": 320 }
   },
   "modbus": {
     "scan": ["127.0.0.1:5020-5025"],
