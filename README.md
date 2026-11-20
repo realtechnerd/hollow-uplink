@@ -2,11 +2,28 @@
 
 *The machines kept us out. Now they're building our way home.*
 
-A universal translator for the unknown machines still running the surface. Edge gateways discover machines, work out how each one talks, translate everything into one common format, and sign every reading so the Directorate can't fake or bury the answer.
-
 Patriot HackFest Fall 2026, Life Underground track (problems #13, #14, #15, and #7).
 
-**World assumption:** the machines were built by humans of our era and later, so they speak real protocols (MQTT, Modbus, ROS). The protocols, discovery, translation, signing and dashboard are real code; only the machines are simulated.
+![Smoke in the real Arduino sensor box turns zone Z5 unsafe, with the verifier's plain-language verdict](docs/img/field-station.jpg)
+
+**The problem.** For thirty years the Directorate has told the Hollow that the surface air kills in minutes. Nobody has gone up to check. Machines left on the surface are still running, but they're from dozens of vendors, they speak different protocols, and nobody knows which ones still tell the truth. Any one of them could be broken, or quietly made to lie.
+
+**Hollow Uplink is a universal translator for those machines, and a referee for what they say.** It answers one question, "is it safe up there, and where?", in a way nobody has to take on faith:
+
+- **It finds machines and learns their language.** Edge gateways discover machines over MQTT and Modbus TCP, work out what each one is from the shape of its data, and translate everything into one common format. One of them is a real Arduino sensor box on the table.
+- **It signs every reading.** Each reading is signed (Ed25519) at the gateway. Forged, tampered and replayed messages are rejected on screen, and nothing on the map changes.
+- **It catches the lie a signature can't.** A hijacked sensor can tell a believable, validly signed lie. When one unconfirmed machine is what changes a zone's verdict, the verifier doesn't believe it or bury it: it opens an investigation, and an operator sends another machine to measure the spot.
+- **It gives residents an answer in plain words.** Each zone gets a verdict (open-air outposts, domes, suits only, or stay out), with a confidence and the reason. Broken sensors are left out, and so are spots nobody has measured.
+- **Humans stay in charge.** Machines only move on operator-signed orders, and one kill switch halts everything that moves.
+
+| One kind of data at a time | The lie a signature can't catch |
+| --- | --- |
+| ![CO₂ map layer: gas pooling around a collapsed metro vent](docs/img/layers.jpg) | ![A scout sent by the operator reaches a hijacked radiation probe and refutes its claim](docs/img/investigation.jpg) |
+| Map layers show radiation, air quality, CO₂ and more, each cell from a trusted machine's latest measurement. | A hijacked probe reports 8 µSv/h, validly signed. A scout the operator sends measures 0.13 there; the claim is refuted and the probe flagged. |
+
+**See it.** Run `python run.py --demo` for the live system with the scripted story (about five minutes with `--auto`), or play the recorded run, which needs no broker. Details under [Run it locally](#run-it-locally-windows-powershell-on-macoslinux-use-venvbinpython).
+
+**World assumption:** the machines were built by humans of our era and later, so they speak real protocols (MQTT, Modbus, ROS). The protocols, discovery, translation, signing and dashboard are real code; the machines are simulated, except the Arduino field station (`hardware/`).
 
 The data contract (message formats and topics) lives in the project outline doc. Change it only by team agreement.
 
@@ -107,7 +124,7 @@ Open http://localhost:8000/dashboard/city.html. The **Surface report** on the le
 10. The kill switch, which also switches the relay off
 11. The closing line
 
-Press Enter for each step. While waiting for the system to react, Enter skips ahead. At the investigation step you can click **Approve** in the 3D view (in operator mode) or press Enter to approve it from the console. `--demo --auto` runs the whole thing by itself in about eight minutes (`run.py --demo --auto --uno fake` includes the field station without the board). With the real board in step 9, blow out a match near the box when the console asks. To run the demo against a stack that's already running, use `python -m tools.demo`; add `--start 9` to rehearse from step 9.
+Press Enter for each step. While waiting for the system to react, Enter skips ahead. At the investigation step you can click **Approve** in the 3D view (in operator mode) or press Enter to approve it from the console. `--demo --auto` runs the whole thing by itself in about five minutes (`run.py --demo --auto --uno fake` includes the field station without the board). With the real board in step 9, blow out a match near the box when the console asks. To run the demo against a stack that's already running, use `python -m tools.demo`; add `--start 9` to rehearse from step 9.
 
 The attacks are the same tools listed further down. One thing is staged, and it's simulation-only: while the hijacked probe is under investigation, untasked scouts keep out of a small circle around it. That way the scout the operator sends is the one that settles it, not one that happens to drive past.
 

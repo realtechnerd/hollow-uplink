@@ -38,6 +38,12 @@ SUSPECT_ZONE = "Z2"
 LIE = 8.0                         # uSv/h: alarming but believable
 KEEP_AWAY_R = 70                  # map units; investigations count readings within 40
 FAULTY = "mqtt-rad-02"
+REC_LABEL = {"outposts": "Outposts", "domes": "Domes", "suits": "Suits only", "not_safe": "Unsafe",
+             "unknown": "Unknown"}     # same words as the 3D view's zone labels
+
+
+def scoring_label(rec: str) -> str:
+    return REC_LABEL.get(rec, rec.replace("_", " "))
 STATION_ZONE = "Z5"               # where uno-gas-01 sits (gateway/config.example.json)
 
 
@@ -318,18 +324,16 @@ class Director:
         print("   Blow out a match near the box (never with the alcohol), or wait for the fake board's smoke.", flush=True)
 
         def smoky():
-            gas = self.station()[1].get("gas_vs_clean_air", 0)
+            # Wait for the verifier's verdict, not the box's latest reading: it judges gas on the median of
+            # the last 10 s, so the first smoky reading alone doesn't change the zone yet.
             with self.state.lock:
-                rec = (self.state.scores.get(STATION_ZONE) or {}).get("recommendation")
-            return gas >= 3 and rec
+                score = dict(self.state.scores.get(STATION_ZONE) or {})
+            return score if (score.get("measured") or {}).get("gas_vs_clean_air", 0) >= 3 else None
 
-        rec = self.wait_until(smoky, "gas in the box", 150)
-        if rec:
-            time.sleep(4)   # the verifier republishes verdicts every 3 s
-            with self.state.lock:
-                rec = (self.state.scores.get(STATION_ZONE) or {}).get("recommendation", rec)
-                verdict = (self.state.scores.get(STATION_ZONE) or {}).get("verdict", "")
-            self.caption(n, f"{STATION_ZONE} is now: {rec.replace('_', ' ')}", verdict)
+        score = self.wait_until(smoky, "gas in the box", 150)
+        if score:
+            rec = score.get("recommendation", "unknown")
+            self.caption(n, f"{STATION_ZONE} is now: {scoring_label(rec)}", score.get("verdict", ""))
             print(f"   {STATION_ZONE}: {rec}", flush=True)
         self.pause("next: a forged command", 10)
 
