@@ -106,6 +106,41 @@ window.Layers = (() => {
     }
     return value;
   }
+  // ---------- readings in plain words (machine panels, tooltips, the operator view's table) ----------
+  // Same words and thresholds as verifier/scoring.py describe(), so the panel agrees with the verdict.
+  const gasWord = (v) => (v <= 1.5 ? "Normal" : v <= 2 ? "Slightly raised" : v <= 3 ? "Elevated" : v <= 4 ? "High" : "Dangerous");
+  const READING_FORMATS = {
+    gas_vs_clean_air: ["Gas or smoke", (v) => `${v.toFixed(1)}× clean air · ${gasWord(v)}`],
+    radiation_usv_h: ["Radiation"],
+    air_quality_aqi: ["Air quality"],
+    pm25_ugm3: ["PM2.5"],
+    co2_ppm: ["CO₂"],
+    temp_c: ["Temperature"],
+    humidity_pct: ["Humidity"],
+    wind_kph: ["Wind"],
+    radiation_cpm: ["Geiger count", (v) => `${Math.round(v)} counts/min`],
+    light_pct: ["Light", (v) => `${Math.round(v)}%`],
+    hatch_open: ["Hatch", (v) => (v ? "open" : "closed")],
+    relay_on: ["Relay", (v) => (v ? "on" : "off")],
+    battery_pct: ["Battery", (v) => `${Math.round(v)}%`],
+  };
+  const READING_ORDER = Object.keys(READING_FORMATS);
+  const layerFor = Object.fromEntries(LAYERS.filter((l) => l.quantity).map((l) => [l.quantity, l]));
+  /** [{key, label, text}] for a reading's values: hazards first, unknown keys last and as sent. */
+  function formatReadings(readings = {}) {
+    const keys = Object.keys(readings).sort((a, b) => {
+      const ia = READING_ORDER.indexOf(a), ib = READING_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    return keys.map((key) => {
+      const v = readings[key];
+      const [label, fmt] = READING_FORMATS[key] ?? [key];
+      let text = String(v);
+      if (typeof v === "number") text = fmt ? fmt(v) : layerFor[key] ? describe(layerFor[key], v) : String(v);
+      return { key, label, text };
+    });
+  }
+
   /** Fresh scans are light, old ones sink toward the dark. */
   const ageColour = (ageS) => BLUE[Math.round((1 - Math.min(1, Math.max(0, ageS) / byId.age.max)) * (BLUE.length - 1))];
   const terrainColour = (cls) => TERRAIN[cls] ?? UNMEASURED;
@@ -303,7 +338,7 @@ window.Layers = (() => {
       mount.appendChild(b);
       buttons.push(b);
     }
-    function select(layer) {
+    function select(layer, remember = true) {
       current = layer;
       for (const b of buttons) {
         const on = b.dataset.layer === layer.id;
@@ -311,12 +346,14 @@ window.Layers = (() => {
         b.tabIndex = on ? 0 : -1;
       }
       legend.innerHTML = legendHtml(layer);
-      try { localStorage.setItem(storageKey, layer.id); } catch { /* storage blocked */ }
+      if (remember) try { localStorage.setItem(storageKey, layer.id); } catch { /* storage blocked */ }
       onChange(layer);
     }
     select(current);
     return {
       get: () => current,
+      /** Switch layer from code (the scripted demo's captions); not remembered for next visit. */
+      set(id) { if (byId[id] && byId[id] !== current) select(byId[id], false); },
       /** Short status line under the legend, e.g. "Measured in 412 of 2,960 surveyed cells". */
       setCount(text) {
         const el = legend.querySelector(".legend-count");
@@ -327,6 +364,6 @@ window.Layers = (() => {
 
   return {
     GW, GH, CELL, N, LAYERS, byId, QUANTITIES, CLASS_NAMES, CLASS_LABEL, UNMEASURED,
-    isData, colourOf, describe, ageColour, terrainColour, fmtAge, MeasureStore, SurfaceGrid, createSelector,
+    isData, colourOf, describe, formatReadings, ageColour, terrainColour, fmtAge, MeasureStore, SurfaceGrid, createSelector,
   };
 })();

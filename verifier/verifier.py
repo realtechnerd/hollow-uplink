@@ -57,6 +57,7 @@ PUBLISH_EVERY_S = 3
 SNAPSHOT_EVERY_S = 10
 INVESTIGATE_RADIUS = 40   # map units (20 m) around the claim that count as "checking the spot"
 INVESTIGATION_SAMPLES = 3 # independent readings needed to settle an investigation
+CLAIM_SAMPLES = 5         # a machine's claim is the median of its last 5 readings (about 10 s for most sensors)
 INVESTIGATION_TTL_S = 900
 HAZARDS = ("radiation_usv_h", "air_quality_aqi", "gas_vs_clean_air")
 # Hazards another machine could be sent to re-measure. Only fixed gas sensors measure gas,
@@ -320,7 +321,9 @@ class Verifier:
             for (unit, q), mine in by_unit.items():
                 if unit in self.corroborated or any(i["suspect"] == unit for i in self.investigations):
                     continue
-                fresh = [s for s in mine if now - s[0] < FRESH_S]
+                # What the machine claims now: its last few readings (samples are newest first). A longer
+                # window would blend in what it said before it changed its story (e.g. before a hijack).
+                fresh = [s for s in mine if now - s[0] < FRESH_S][:CLAIM_SAMPLES]
                 if not fresh:
                     continue
                 claimed = statistics.median(s[6] for s in fresh)

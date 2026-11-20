@@ -42,6 +42,7 @@ h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; t
 .pill-ok { color: var(--ok); }
 .pill-bad { color: var(--bad); }
 .pill-wait { color: var(--warn); }
+.pill-replay { color: var(--accent, #8fd3ff); }
 
 main {
   display: grid;

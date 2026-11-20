@@ -25,8 +25,8 @@ GATEWAY_DIR = Path(__file__).resolve().parent.parent / "gateway"
 def air_sensor(env: dict, rng: random.Random) -> dict:
     # Vendor A: terse keys, temp in C
     return {
-        "pm25": round(env["aqi"] * 0.28 + rng.uniform(-1, 1), 1),
-        "co2_ppm": int(430 + rng.uniform(-15, 15)),
+        "pm25": env["pm25_ugm3"],
+        "co2_ppm": env["co2_ppm"],
         "t": env["temp_c"],
         "aqi": env["aqi"],
     }
@@ -44,8 +44,8 @@ def weather_mast(env: dict, rng: random.Random) -> dict:
         "station": {"model": "WX-9", "fw": "4.2.1"},
         "obs": {
             "temperature_f": round(env["temp_c"] * 9 / 5 + 32, 1),
-            "humidity": int(55 + rng.uniform(-4, 4)),
-            "wind_kph": round(12 + rng.uniform(-3, 5), 1),
+            "humidity": env["humidity_pct"],
+            "wind_kph": env["wind_kph"],
         },
     }
 

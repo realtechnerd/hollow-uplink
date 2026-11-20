@@ -75,9 +75,9 @@ def air_registers(env: dict, faulty: bool, lie: float | None) -> list[int]:
     aqi = env["aqi"] if lie is None else lie * random.uniform(0.95, 1.05)
     if faulty:
         aqi = 500.0
-    pm25 = aqi * 0.28 + random.uniform(-1, 1)
+    pm25 = env["pm25_ugm3"] if lie is None and not faulty else aqi * 0.28 + random.uniform(-1, 1)
     temp_f10 = round((env["temp_c"] * 9 / 5 + 32) * 10)
-    return [*f32_swapped(aqi), *f32_swapped(pm25), int(430 + random.uniform(-15, 15)), *i16(temp_f10)]
+    return [*f32_swapped(aqi), *f32_swapped(pm25), min(65535, env["co2_ppm"]), *i16(temp_f10)]
 
 
 REGISTERS = {"rad": rad_registers, "air": air_registers}

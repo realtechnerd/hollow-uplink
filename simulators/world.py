@@ -23,6 +23,16 @@ RADIATION_HOTSPOTS = [
 SMOKE_SOURCES = [
     (470, 420, 140, 75),    # landfill that has smouldered for decades, Z5
 ]
+CO2_SOURCES = [
+    (470, 420, 900, 60),    # the same landfill fire
+    (225, 330, 2400, 40),   # collapsed metro vent: CO2 pools in the low ground, Z4
+]
+DOWNTOWN = (360, 200)       # tall buildings shelter the old centre from the wind
+
+
+def river_y(x: float) -> float:
+    """Centre line of the river, in map units (matches World._generate)."""
+    return (35 + 4.5 * math.sin((x / 10) / 9.0)) * 10 + 5
 
 
 def environment(x: float, y: float, t: float, rng: random.Random) -> dict:
@@ -31,13 +41,27 @@ def environment(x: float, y: float, t: float, rng: random.Random) -> dict:
         return peak * math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / radius ** 2)
 
     rad = 0.12 + sum(bump(*h) for h in RADIATION_HOTSPOTS)
-    aqi = 40 + 8 * math.sin(t / 120 + x / 200) + sum(bump(*s) for s in SMOKE_SOURCES)
+    smoke = sum(bump(*s) for s in SMOKE_SOURCES)
+    aqi = 40 + 8 * math.sin(t / 120 + x / 200) + smoke
     temp = 26 + 3 * math.sin(t / 300) - 2 * math.exp(-((y - 350) / 40) ** 2)  # cooler by the river
+    # Fine dust: settled ash everywhere, much worse downwind of the landfill smoke.
+    pm25 = 5 + 2 * math.sin(t / 150 + y / 120) + 0.36 * smoke
+    co2 = 425 + sum(bump(*c) for c in CO2_SOURCES)
+    river = math.exp(-((y - river_y(x)) / 45) ** 2)
+    humidity = 40 + 38 * river + 5 * math.sin(t / 200 + x / 300)
+    sheltered = math.exp(-math.dist((x, y), DOWNTOWN) ** 2 / 170 ** 2)
+    wind = 9 + 26 * (1 - sheltered) + 8 * river + 4 * math.sin(t / 40 + x / 90)
     return {
         "radiation_usv_h": round(rad * rng.uniform(0.93, 1.07), 3),
         "aqi": int(max(0, aqi + rng.uniform(-4, 4))),
         "temp_c": round(temp + rng.uniform(-0.3, 0.3), 1),
+        "pm25_ugm3": round(max(0.0, pm25 * rng.uniform(0.9, 1.1)), 1),
+        "co2_ppm": int(co2 * rng.uniform(0.97, 1.03)),
+        "humidity_pct": int(min(100, max(0, humidity + rng.uniform(-3, 3)))),
+        "wind_kph": round(max(0.0, wind * rng.uniform(0.85, 1.15)), 1),
     }
+
+
 PASSABLE = {OPEN, RUBBLE, VEGETATION}
 BLOCKS_SIGHT = {BUILDING, DAMAGED}
 BLOCK = 8  # a street every 8 cells

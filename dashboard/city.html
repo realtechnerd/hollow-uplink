@@ -43,10 +43,18 @@
       <label id="op-sandbox-wrap" hidden title="Approved tasks are acknowledged but never sent to the machine"><input type="checkbox" id="op-sandbox"> Sandbox</label>
       <button id="op-kill" class="op-btn kill" hidden>Kill switch</button>
     </div>
-    <a class="view-link" href="index.html">Operator view →</a>
+    <a id="view-link" class="view-link" href="index.html">Operator view →</a>
+    <button id="intro-open" class="help-btn" type="button" aria-label="What am I looking at?" title="What am I looking at?">?</button>
   </header>
 
-  <div id="kill-banner" class="kill-banner" hidden>KILL SWITCH ENGAGED · every machine that can move is halted and new tasks are refused</div>
+  <div class="top-center">
+    <div id="kill-banner" class="kill-banner" hidden>KILL SWITCH ENGAGED · every machine that can move is halted and new tasks are refused</div>
+    <section id="caption" class="hud caption" aria-live="polite" hidden>
+      <span id="caption-step" class="caption-step"></span>
+      <h2 id="caption-title"></h2>
+      <p id="caption-text"></p>
+    </section>
+  </div>
 
   <aside id="report" class="hud hud-report" aria-label="Surface report">
     <button id="report-toggle" class="report-toggle" type="button" aria-expanded="false" aria-controls="report-body">
@@ -79,6 +87,28 @@
   <div id="tooltip" class="tooltip" hidden></div>
 
   <div id="empty" class="hud hud-empty">Nobody has seen the surface in thirty years. Listening for machines…</div>
+
+  <dialog id="intro" class="intro" aria-labelledby="intro-title">
+    <p class="intro-kicker">Patriot HackFest · Life Underground</p>
+    <h2 id="intro-title">Hollow Uplink</h2>
+    <p class="intro-lead">For thirty years the Directorate has told the Hollow that the surface air kills in minutes.
+      Nobody has been up to check. The machines left behind are still running, and this is what they measure.</p>
+    <ol class="intro-steps">
+      <li><b>The city starts dark.</b> Scout robots map it with LiDAR as they explore. Every tile is a signed scan,
+        and it fades as the scan gets old.</li>
+      <li><b>Surface report</b>, top left: the verifier's plain-language answer for each zone (outposts, domes, suits
+        or not safe), and any claim it has sent a machine to check.</li>
+      <li><b>Map layers</b>, right edge: one measurement at a time, like radiation, air quality or CO₂, from trusted
+        machines only. Grey means nobody has measured there yet.</li>
+      <li><b>Click any machine</b> for its readings and signature check. Forged, tampered or replayed messages are
+        rejected and show in the feed, bottom left.</li>
+    </ol>
+    <p class="intro-note">The machines are simulated. The protocols (MQTT, Modbus TCP), translation, signing and
+      verification are real code.</p>
+    <form method="dialog" class="intro-actions">
+      <button class="intro-go" value="go">Start watching</button>
+    </form>
+  </dialog>
 
   <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>

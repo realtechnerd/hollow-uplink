@@ -11,6 +11,7 @@ For forged or tampered messages, see tools/spoof.py instead.
 
 import argparse
 import json
+import time
 
 from hollow import config, topics
 from hollow.mqtt import connect, make_client
@@ -32,6 +33,7 @@ def main() -> None:
     connect(client)
     client.loop_start()
     client.publish(topics.sim_control(args.gateway), json.dumps(ctl)).wait_for_publish()
+    time.sleep(0.3)  # like tools/operator.py: a busy dev broker can drop a message sent right before a disconnect
     client.loop_stop()
     client.disconnect()
     print(f"{args.action}: {args.unit_id}" + (f" now claims {args.value}" if args.action == "compromise" else ""))

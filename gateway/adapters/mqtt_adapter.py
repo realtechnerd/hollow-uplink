@@ -49,6 +49,10 @@ TRANSLATIONS = {
         "env.rad": ("radiation_usv_h", float),
         "env.aqi": ("air_quality_aqi", float),
         "env.temp": ("temp_c", float),
+        "env.pm25": ("pm25_ugm3", float),
+        "env.co2": ("co2_ppm", float),
+        "env.rh": ("humidity_pct", float),
+        "env.wind": ("wind_kph", float),
     },
     # BX-1 field station (the real Arduino in hardware/uno_station). Gas is handled in translate().
     "field_station": {

@@ -58,8 +58,10 @@ def path_to(world: World, start, goal, known: set):
     return best, _unwind(parents, best)
 
 
-def plan_path(world: World, start, known: set, avoid: set, rng: random.Random):
-    """BFS to the nearest frontier cell (passable, next to unseen) not near another scout's target."""
+def plan_path(world: World, start, known: set, avoid: set, rng: random.Random, keep_out=lambda cell: False):
+    """BFS to the nearest frontier cell (passable, next to unseen) not near another scout's target.
+    Cells where keep_out(cell) is true are never entered or chosen as a goal (a scout already
+    inside may still drive out)."""
     parents = {start: None}
     queue = deque([start])
     fallback = None
@@ -70,18 +72,18 @@ def plan_path(world: World, start, known: set, avoid: set, rng: random.Random):
             world.in_bounds(nx, ny) and (nx, ny) not in known
             for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))
         )
-        if is_frontier and cell != start:
+        if is_frontier and cell != start and not keep_out(cell):
             if all(abs(x - ax) + abs(y - ay) > 8 for ax, ay in avoid):
                 return cell, _unwind(parents, cell)
             fallback = fallback or cell
         for nxt in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-            if nxt not in parents and nxt in known and world.passable(*nxt):
+            if nxt not in parents and nxt in known and world.passable(*nxt) and (keep_out(cell) or not keep_out(nxt)):
                 parents[nxt] = cell
                 queue.append(nxt)
     if fallback:
         return fallback, _unwind(parents, fallback)
     # Everything reachable is mapped: patrol to a random known spot to keep data fresh.
-    reachable = list(parents)
+    reachable = [c for c in parents if not keep_out(c)] or list(parents)
     goal = rng.choice(reachable)
     return goal, _unwind(parents, goal)
 
@@ -115,16 +117,32 @@ def main() -> None:
     known: set[tuple[int, int]] = set()
     started = time.time()
     orders: queue.Queue = queue.Queue()   # vendor commands arriving from the gateway
+    # Simulation-only staging for a scripted demo (tools/demo.py): a circle untasked scouts stay
+    # out of, so the investigation is settled by the machine the operator sends, not a passer-by.
+    keep_away: dict = {}
 
-    def on_command(client, userdata, msg):
+    def keep_out(cell) -> bool:
+        if not keep_away:
+            return False
+        cx, cy = (cell[0] + 0.5) * geo.CELL, (cell[1] + 0.5) * geo.CELL
+        return math.hypot(cx - keep_away["x"], cy - keep_away["y"]) <= keep_away["r"]
+
+    def on_message(client, userdata, msg):
         try:
-            orders.put((msg.topic.rsplit("/", 1)[-1], json.loads(msg.payload)))
+            data = json.loads(msg.payload)
         except json.JSONDecodeError:
-            pass
+            return
+        if msg.topic == topics.sim_control(args.gateway):
+            if isinstance(data, dict) and "scouts" in data:
+                orders.put(("*", data))
+            return
+        orders.put((msg.topic.rsplit("/", 1)[-1], data))
 
     client = make_client(f"scouts-{args.gateway}")
-    client.on_connect = lambda c, u, f, rc, p: c.subscribe(topics.machine_command(args.gateway, "mqtt", "+"))
-    client.on_message = on_command
+    client.on_connect = lambda c, u, f, rc, p: c.subscribe(
+        [(topics.machine_command(args.gateway, "mqtt", "+"), 0), (topics.sim_control(args.gateway), 0)]
+    )
+    client.on_message = on_message
     connect(client)
     client.loop_start()
     print(f"{len(scouts)} scouts exploring for {args.gateway} on {config.MQTT_HOST}:{config.MQTT_PORT}")
@@ -134,6 +152,17 @@ def main() -> None:
         while True:
             while not orders.empty():
                 unit_id, order = orders.get()
+                if unit_id == "*":
+                    if order.get("scouts") == "keep_away":
+                        keep_away.update(x=float(order["x"]), y=float(order["y"]), r=float(order["r"]))
+                        print(f"Staying out of {keep_away['r']:g} units around ({keep_away['x']:g}, {keep_away['y']:g})")
+                    else:
+                        keep_away.clear()
+                        print("Keep-away area cleared")
+                    for s in scouts:
+                        if not s.task:
+                            s.path = []   # replan around (or back into) the area
+                    continue
                 scout = by_id.get(unit_id)
                 if not scout:
                     continue
@@ -158,10 +187,12 @@ def main() -> None:
                         scout.task, scout.task_state = None, "idle"
                 elif not scout.path:
                     others = {s.target for s in scouts if s is not scout and s.target}
-                    scout.target, scout.path = plan_path(world, (scout.gx, scout.gy), known, others, rng)
+                    scout.target, scout.path = plan_path(world, (scout.gx, scout.gy), known, others, rng, keep_out)
                 if scout.path and scout.linger == 0:
                     nx, ny = scout.path.pop(0)
-                    if world.passable(nx, ny):
+                    if not scout.task and keep_out((nx, ny)) and not keep_out((scout.gx, scout.gy)):
+                        scout.path = []
+                    elif world.passable(nx, ny):
                         scout.theta = math.degrees(math.atan2(ny - scout.gy, nx - scout.gx))
                         scout.gx, scout.gy = nx, ny
                     else:
@@ -177,7 +208,11 @@ def main() -> None:
                     "battery": round(scout.battery, 1),
                     "scan": {"cell": geo.CELL, "hits": hits},
                     # Onboard environmental payload (inspection robots commonly carry one)
-                    "env": {"rad": env["radiation_usv_h"], "aqi": env["aqi"], "temp": env["temp_c"]},
+                    "env": {
+                        "rad": env["radiation_usv_h"], "aqi": env["aqi"], "temp": env["temp_c"],
+                        "pm25": env["pm25_ugm3"], "co2": env["co2_ppm"], "rh": env["humidity_pct"],
+                        "wind": env["wind_kph"],
+                    },
                 }
                 if scout.task:
                     raw["task"] = {"ref": scout.task, "state": scout.task_state}

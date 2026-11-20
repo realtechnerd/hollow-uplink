@@ -45,6 +45,10 @@ Start the stack as usual (broker, gateway, verifier, scouts). Start the scouts e
 
 No board, or testing on another laptop: `python -m tools.uno_bridge --fake` imitates one, with a smoke event every 90 s.
 
+Or start the bridge with everything else: `python run.py --uno COM3` (or `--uno fake`).
+
+In the 3D view the station is the small grey box in Z5. Its lid lifts when the hatch opens, its lamp lights when the relay is on, and a glow around it shows the gas level. Click it for its readings in plain words. In operator mode the panel also has a **Switch relay on/off** button, which sends the same signed command as `tools.operator relay`.
+
 The board sits at `uno-gas-01` in **Z5** (`gateway/config.example.json`; to move it, copy that file to `gateway/config.json` and change the zone and x/y). It must run on the same machine as the gateway whose `GATEWAY_ID` it uses.
 
 ## What the gateway and verifier do with it

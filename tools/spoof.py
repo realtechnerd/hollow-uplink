@@ -98,6 +98,7 @@ def main() -> None:
         topic, payload = topics.reading(args.zone, args.unit_id), json.dumps(envelope)
 
     client.publish(topic, payload).wait_for_publish()
+    time.sleep(0.3)  # like tools/operator.py: a busy dev broker can drop a message sent right before a disconnect
     client.loop_stop()
     client.disconnect()
     print(f"Sent {args.mode} {'' if args.mode == 'command' else 'reading '}for {args.unit_id}")

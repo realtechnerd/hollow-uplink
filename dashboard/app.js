@@ -141,7 +141,7 @@
   }
 
   function fmtReadings(r) {
-    return Object.entries(r).map(([k, v]) => `${k} ${v}`).join("  ·  ");
+    return Layers.formatReadings(r).map((x) => `${x.label} ${x.text}`).join("  ·  ");
   }
 
   function render() {
@@ -157,7 +157,7 @@
       const r = u.reading;
       const cells = [
         [id, "mono"],
-        [r?.kind ?? u.fingerprint?.kind ?? "?", ""],
+        [(r?.kind ?? u.fingerprint?.kind ?? "?").replace(/_/g, " "), ""],
         [r?.zone ?? "?", ""],
         [r ? fmtReadings(r.readings) : "discovered, no reading yet", "mono"],
         u.reason ? [`✗ ${u.reason}`, "sig-bad"]
@@ -214,7 +214,7 @@
   function feed(text, cls = "info") {
     const li = document.createElement("li");
     const t = document.createElement("time");
-    t.textContent = new Date().toLocaleTimeString();
+    t.textContent = new Date(Uplink.now()).toLocaleTimeString();
     const span = document.createElement("span");
     span.className = cls;
     span.textContent = text;
@@ -226,7 +226,11 @@
 
   drawZones();
   const conn = $("conn");
-  const STATUS = { live: ["live", "pill-ok"], reconnecting: ["reconnecting…", "pill-wait"], offline: ["offline", "pill-bad"] };
+  const STATUS = {
+    live: ["live", "pill-ok"], reconnecting: ["reconnecting…", "pill-wait"], offline: ["offline", "pill-bad"],
+    loading: ["loading recording…", "pill-wait"], replay: ["recorded run", "pill-replay"], ended: ["recording ended", "pill-replay"],
+  };
+  if (Uplink.isReplay) $("city-link").href = `city.html${location.search}`;
 
   Uplink.start({
     onStatus(state) {
@@ -235,11 +239,19 @@
       conn.className = `pill ${cls}`;
     },
     onLog: feed,
+    onNoBroker(query) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="bad">No live broker is reachable.</span> <a class="view-link" href="index.html${query}">Watch the recorded run instead</a>`;
+      $("feed").prepend(li);
+    },
     onDiscovered(d) {
       const fp = d.fingerprint ?? {};
       feed(`Discovered ${d.unit_id} via ${d.protocol} at ${d.gateway_id}: ${fp.kind} (${fp.evidence})`, "info");
       units.set(d.unit_id, { ...(units.get(d.unit_id) ?? {}), fingerprint: fp });
       render();
+    },
+    onCommand({ unitId, ok, reason }) {
+      if (!ok) feed(`Rejected a command for ${unitId}: ${reason}. The gateway refuses it too.`, "bad");
     },
     onReading({ unitId, msg, ok, reason }) {
       const u = units.get(unitId) ?? {};

@@ -5,3 +5,6 @@ __pycache__/
 # Private signing keys never get committed. keys/trusted.json (public keys) does.
 keys/*.key
 gateway/config.json
+# run.py writes each service's output here
+logs/
+*.part

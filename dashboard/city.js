@@ -786,6 +786,7 @@ function renderOperator() {
   $("op-kill").classList.toggle("engaged", killEngaged);
   $("kill-banner").hidden = !killEngaged;
   renderInvestigations();
+  renderPanel();   // the relay switch depends on operator mode and the kill switch
 }
 
 $("op-unlock").addEventListener("click", () => {
@@ -829,7 +830,10 @@ const mat = {
   dark: new THREE.MeshStandardMaterial({ color: 0x2a2d29, metalness: 0.3, roughness: 0.7 }),
   hazard: new THREE.MeshStandardMaterial({ color: 0xd9a92a, metalness: 0.2, roughness: 0.55 }),
   teal: new THREE.MeshStandardMaterial({ color: 0x3d8f8a, metalness: 0.3, roughness: 0.5 }),
+  boxShell: new THREE.MeshStandardMaterial({ color: 0xc9cbc2, metalness: 0.05, roughness: 0.8 }),   // printed plastic
+  boxLid: new THREE.MeshStandardMaterial({ color: 0xb4b7ad, metalness: 0.05, roughness: 0.8 }),
 };
+const LAMP_ON = new THREE.Color(0xffc24a);
 const mesh = (geo, m, x = 0, y = 0, z = 0) => {
   const o = new THREE.Mesh(geo, m);
   o.position.set(x, y, z);
@@ -840,6 +844,7 @@ const mesh = (geo, m, x = 0, y = 0, z = 0) => {
 function buildModel(kind) {
   const g = new THREE.Group();
   const spinners = [];
+  const parts = {};
   let top = 1;
   switch (kind) {
     case "scout_robot": {
@@ -909,15 +914,36 @@ function buildModel(kind) {
       top = 2.6;
       break;
     }
+    case "field_station": {
+      // The real Arduino sensor box (hardware/enclosure.html), scaled up so it reads on the map:
+      // a printed box on a low plinth, a lid that lifts when the hatch opens, and the relay's lamp.
+      g.add(mesh(new THREE.BoxGeometry(1.5, 0.12, 1.1), mat.dark, 0, 0.06, 0));
+      g.add(mesh(new THREE.BoxGeometry(1.2, 0.62, 0.85), mat.boxShell, 0, 0.43, 0));
+      const grille = mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 14), mat.dark, -0.32, 0.43, 0.43);  // gas sensor
+      grille.rotation.x = Math.PI / 2;
+      g.add(grille);
+      const lid = new THREE.Group();          // hinged along the back edge
+      lid.position.set(0, 0.74, -0.425);
+      lid.add(mesh(new THREE.BoxGeometry(1.24, 0.08, 0.89), mat.boxLid, 0, 0, 0.445));
+      g.add(lid);
+      const lamp = mesh(new THREE.SphereGeometry(0.12, 14, 10),
+        new THREE.MeshStandardMaterial({ color: 0x3a3c37, emissive: 0x000000, roughness: 0.4 }), 0.34, 0.58, 0.44);
+      g.add(lamp);
+      parts.lid = lid;
+      parts.lamp = lamp;
+      top = 1.15;
+      break;
+    }
     default: {
       g.add(mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), mat.metal, 0, 0.35, 0));
       top = 1.0;
     }
   }
-  return { model: g, spinners, top };
+  return { model: g, spinners, parts, top };
 }
 
 const GREEN = new THREE.Color(0x4cc38a), RED = new THREE.Color(0xff5a5f), AMBER = new THREE.Color(0xf5a524);
+const BLACK = new THREE.Color(0x000000);
 const units = new Map();
 const hitboxes = [];
 let unmappedCount = 0;
@@ -952,7 +978,7 @@ function makeField() {
 }
 
 function createUnit(id, kind) {
-  const { model, spinners, top } = buildModel(kind);
+  const { model, spinners, parts, top } = buildModel(kind);
   const holder = new THREE.Group();
   holder.add(model);
 
@@ -1008,10 +1034,10 @@ function createUnit(id, kind) {
 
   scene.add(holder);
   const u = {
-    id, kind, holder, model, spinners, beacon, ring, labelEl, sweep,
+    id, kind, holder, model, spinners, parts, beacon, ring, labelEl, sweep, relayPending: null,
     reading: null, verified: false, reason: null, rejectedUntil: 0,
     target: new THREE.Vector3(), heading: 0, spawnAt: performance.now(), placed: false,
-    radField: makeField(), airField: makeField(), cellsMapped: 0,
+    radField: makeField(), airField: makeField(), gasField: makeField(), cellsMapped: 0,
   };
   units.set(id, u);
   $("empty").hidden = true;
@@ -1042,7 +1068,7 @@ function updateFields(u) {
   const pos = u.target;
   // Never paint a hazard from a sensor the verifier has flagged as faulty.
   const show = $("t-rad").checked && !faulty.has(u.id) && layer.kind === "all";
-  u.radField.visible = u.airField.visible = false;
+  u.radField.visible = u.airField.visible = u.gasField.visible = false;
   if (typeof r.radiation_usv_h === "number") {
     const v = r.radiation_usv_h;
     const size = 6 + 7 * Math.log10(1 + v * 4);
@@ -1060,6 +1086,16 @@ function updateFields(u) {
     u.airField.material.opacity = 0.25 + Math.min(0.35, a / 600);
     u.airField.position.set(pos.x, u.airField.position.y, pos.z);
     u.airField.visible = show;
+  }
+  if (typeof r.gas_vs_clean_air === "number") {
+    // Gas or smoke from the real field station: the cloud grows with how far above clean air it is.
+    const ratio = r.gas_vs_clean_air;
+    const size = 6 + 5 * Math.min(4, Math.max(0, ratio - 1));
+    u.gasField.scale.set(size, size, 1);
+    u.gasField.material.color.set(ratio <= 1.5 ? 0x4cc38a : ratio <= 2 ? 0xc9b458 : ratio <= 3 ? 0xc77b3a : 0xff3b30);
+    u.gasField.material.opacity = ratio <= 1.5 ? 0.25 : 0.55;
+    u.gasField.position.set(pos.x, u.gasField.position.y, pos.z);
+    u.gasField.visible = show;
   }
 }
 
@@ -1079,7 +1115,7 @@ const beams = [];
 function ticker(text, cls = "info") {
   const li = document.createElement("li");
   const t = document.createElement("time");
-  t.textContent = new Date().toLocaleTimeString();
+  t.textContent = new Date(Uplink.now()).toLocaleTimeString();
   const span = document.createElement("span");
   span.className = cls;
   span.textContent = text;
@@ -1107,7 +1143,7 @@ function renderPanel() {
   panel.hidden = false;
   const r = u.reading;
   const now = performance.now();
-  const rows = r ? Object.entries(r.readings).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("") : "";
+  const rows = r ? Layers.formatReadings(r.readings).map((x) => `<dt>${esc(x.label)}</dt><dd>${esc(x.text)}</dd>`).join("") : "";
   const sig = (now < u.rejectedUntil
     ? `<div class="sig bad">✗ Last message rejected: ${esc(u.reason)}</div>`
     : u.verified ? `<div class="sig ok">✓ Signed by ${esc(r.gateway_id)}, verified</div>` : `<div class="sig bad">✗ ${esc(u.reason ?? "unverified")}</div>`)
@@ -1124,16 +1160,82 @@ function renderPanel() {
     ${u.kind === "scout_robot" ? `<dt>Cells surveyed</dt><dd>${u.cellsMapped}</dd>` : ""}
     <dt>Last update</dt><dd>${esc(r?.timestamp?.slice(11, 19) ?? "?")} UTC</dd></dl>
     ${u.fingerprint ? `<h3>Fingerprint</h3><p class="note">${esc(u.fingerprint.evidence)} (confidence ${u.fingerprint.confidence})</p>` : ""}
-    <h3>Tasks</h3>
-    <p class="note">${u.kind === "scout_robot"
-      ? "Scouts take investigation tasks from the Surface report. Zone goals come next."
-      : "This machine only reports; it can't be tasked."}</p>`;
+    <h3>${u.kind === "field_station" ? "Relay" : "Tasks"}</h3>
+    ${taskHtml(u)}`;
 }
+
+/** What an operator can ask this machine to do. Commands are signed with the operator key in this tab. */
+function taskHtml(u) {
+  if (u.kind === "scout_robot") return `<p class="note">Scouts take investigation tasks from the Surface report. Zone goals come next.</p>`;
+  if (u.kind !== "field_station") return `<p class="note">This machine only reports; it can't be tasked.</p>`;
+  const on = !!u.reading?.readings?.relay_on;
+  const intro = `<p class="note">This station switches a relay (for example an air pump). It's <b>${on ? "on" : "off"}</b>.</p>`;
+  if (Uplink.isReplay) return intro;
+  if (!Uplink.isOperator()) return `${intro}<p class="note">Unlock operator mode to switch it.</p>`;
+  if (killEngaged) return `${intro}<p class="note">The kill switch is engaged, so the gateway refuses new commands. It has already switched the relay off.</p>`;
+  const pending = u.relayPending && performance.now() - u.relayPending.at < 8000 && u.relayPending.on !== on;
+  if (!pending) u.relayPending = null;
+  const want = !on;
+  return `${intro}<button class="task-btn" data-relay="${want ? "on" : "off"}" ${pending ? "disabled" : ""}>` +
+    `${pending ? `Switching ${u.relayPending.on ? "on" : "off"}…` : `Switch relay ${want ? "on" : "off"}`}</button>`;
+}
+
+$("panel-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-relay]");
+  const u = units.get(selectedId);
+  if (!btn || !u) return;
+  const on = btn.dataset.relay === "on";
+  const cmd = Uplink.sendCommand({ unitId: u.id, type: "relay", params: { on } });
+  if (!cmd) return;
+  u.relayPending = { on, at: performance.now() };
+  ticker(`Sent a signed command: switch ${u.id}'s relay ${on ? "on" : "off"}`, "info");
+  renderPanel();
+  setTimeout(renderPanel, 8100);   // stop waiting after 8 s and show the button again
+});
 $("panel-close").addEventListener("click", () => { selectedId = null; renderPanel(); });
 
 // ---------- live data ----------
 const fingerprints = new Map();
-const STATUS = { live: ["live", "pill-ok"], reconnecting: ["reconnecting…", "pill-wait"], offline: ["offline", "pill-bad"] };
+const STATUS = {
+  live: ["live", "pill-ok"], reconnecting: ["reconnecting…", "pill-wait"], offline: ["offline", "pill-bad"],
+  loading: ["loading recording…", "pill-wait"], replay: ["recorded run", "pill-replay"], ended: ["recording ended", "pill-replay"],
+};
+
+// ---------- demo captions (tools/demo.py) ----------
+let captionKey = "";
+function showCaption(c) {
+  const box = $("caption");
+  if (!c || !c.title) { box.hidden = true; captionKey = ""; return; }
+  const key = `${c.step}|${c.title}|${c.text}`;
+  if (key === captionKey) return;
+  captionKey = key;
+  $("caption-step").textContent = c.step && c.total ? `Step ${c.step} of ${c.total}` : "";
+  $("caption-title").textContent = c.title;
+  $("caption-text").textContent = c.text ?? "";
+  box.hidden = false;
+  box.classList.remove("enter");
+  void box.offsetWidth;            // restart the entrance animation
+  box.classList.add("enter");
+  if (c.layer) selector.set(c.layer);
+}
+
+// ---------- first-visit introduction ----------
+const INTRO_KEY = "hollow.intro.seen";
+function openIntro() { if (!$("intro").open) $("intro").showModal(); }
+$("intro-open").addEventListener("click", openIntro);
+$("intro").addEventListener("close", () => { try { localStorage.setItem(INTRO_KEY, "1"); } catch { /* storage blocked */ } });
+$("intro").addEventListener("click", (e) => { if (e.target === $("intro")) $("intro").close(); });  // click outside
+let introSeen = false;
+try { introSeen = localStorage.getItem(INTRO_KEY) === "1"; } catch { /* storage blocked */ }
+if (!introSeen && !new URLSearchParams(location.search).has("nointro")) openIntro();
+
+if (Uplink.isReplay) {
+  // A recording can't take orders: no operator mode, and keep the replay when switching views.
+  $("op-unlock").hidden = true;
+  document.querySelector(".brand .sub").textContent = "Surface view · recorded run";
+  $("view-link").href = `index.html${location.search}`;
+  $("empty").textContent = "Loading the recorded run…";
+}
 
 Uplink.start({
   onStatus(state) {
@@ -1142,6 +1244,12 @@ Uplink.start({
     $("conn").className = `pill ${cls}`;
   },
   onLog: ticker,
+  onCaption: showCaption,
+  onNoBroker(query) {
+    const empty = $("empty");
+    if (empty.hidden) return;
+    empty.innerHTML = `No live broker is reachable. <a href="city.html${query}">Watch the recorded run instead</a>`;
+  },
   onDiscovered(d) {
     fingerprints.set(d.unit_id, d.fingerprint);
     const u = units.get(d.unit_id);
@@ -1202,6 +1310,9 @@ Uplink.start({
     }
     syncInvestigationMarkers();
     renderInvestigations();
+  },
+  onCommand({ unitId, ok, reason }) {
+    if (!ok) ticker(`Rejected a command for ${unitId}: ${reason}. The gateway refuses it too, so it never reaches the machine.`, "bad");
   },
   onAck(ack) {
     const cls = ack.result === "rejected" ? "bad" : "info";
@@ -1289,7 +1400,7 @@ function updateTooltip() {
   if (hit.unit) {
     const u = hit.unit;
     const r = u.reading?.readings ?? {};
-    const keys = Object.entries(r).slice(0, 3).map(([k, v]) => `${esc(k)} ${esc(v)}`).join("<br>");
+    const keys = Layers.formatReadings(r).slice(0, 3).map((x) => `${esc(x.label)} <b>${esc(x.text)}</b>`).join("<br>");
     const bad = performance.now() < u.rejectedUntil;
     html = `<b>${esc(u.id)}</b> <span class="muted">${esc(u.kind)}</span><br>${keys}<br>` +
       (bad ? `<span style="color:var(--bad)">✗ ${esc(u.reason)}</span>`
@@ -1371,6 +1482,13 @@ function animate() {
     u.model.rotation.y += (u.heading - u.model.rotation.y) * Math.min(1, dt * 6);
 
     for (const [obj, speed] of u.spinners) obj.rotation.y += speed * dt;
+    if (u.parts.lid) {
+      const rd = u.reading?.readings ?? {};
+      const open = rd.hatch_open ? -1.15 : 0;
+      u.parts.lid.rotation.x += (open - u.parts.lid.rotation.x) * Math.min(1, dt * 6);
+      u.parts.lamp.material.emissive.copy(rd.relay_on ? LAMP_ON : BLACK);
+      u.parts.lamp.material.color.set(rd.relay_on ? 0xffd27a : 0x3a3c37);
+    }
     if (u.sweep) u.sweep.userData.wedge.rotation.z -= dt * 3;
 
     const bad = now < u.rejectedUntil;

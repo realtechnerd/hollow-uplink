@@ -45,6 +45,9 @@ Each teammate runs one edge gateway for their "site". It reads only its own site
 | `hardware/` | The one real machine: an Arduino Uno field station (gas, climate, hatch, relay). Wiring, setup and demo script in `hardware/README.md` |
 | `tools/uno_bridge.py` | Forwards the Uno's USB serial lines to the site's MQTT network and commands back (`--fake` without a board) |
 | `tools/attack.py` | Simulation only: makes a running sensor tell a believable, validly signed lie |
+| `tools/demo.py` | The scripted demo: runs the story step by step, with captions in the 3D view |
+| `tools/record.py` | Records everything the dashboards receive, for replay with no broker (`dashboard/recordings/`) |
+| `run.py` | Starts the whole local stack with one command (and the demo, and a recording) |
 | `dev/broker.py` | Local MQTT broker with no Docker (`docker compose up` works too) |
 
 ## Run it locally (Windows PowerShell; on macOS/Linux use `.venv/bin/python`)
@@ -61,7 +64,15 @@ python -m venv .venv
 
 The operator key approves tasks and controls the kill switch. Keep `keys/operator.key` private; it is git-ignored and the dev server refuses to serve `.key` files.
 
-Then in seven terminals:
+Then start everything with one command:
+
+```
+.\.venv\Scripts\python run.py
+```
+
+It starts the broker, the Modbus devices, the gateway, the verifier, the sensors, three scouts and the web server in the right order, opens the 3D view, and stops them all on Ctrl+C. Each service's output is in `logs/<name>.log`. Missing keys are created on the first run. Options: `--scouts 2`, `--tick 0.5`, `--no-browser`, and `--uno COM3` to bring in the real Arduino field station (`--uno fake` imitates one; see `hardware/README.md`). `--demo` and `--record` are below.
+
+Or run each piece in its own terminal (what `run.py` does for you):
 
 ```
 .\.venv\Scripts\python dev\broker.py
@@ -79,7 +90,31 @@ The Modbus devices listen on 127.0.0.1:5020-5022, each one standing in for a sep
 
 Open http://localhost:8000/dashboard/city.html. The **Surface report** on the left is the resident's answer: the Directorate's claim, then a plain-language verdict per zone from the verifier. Within seconds the verifier flags `mqtt-rad-02` as faulty (pinned at its maximum, stuck, and contradicted by nearby scouts) and leaves it out. The surface starts dark; the scouts reveal it as they explore (about 40% mapped after a minute, 95% after five). Hover a tile to see when and by whom it was scanned, and click a machine for its readings and signature status. The operator view is at http://localhost:8000/dashboard/.
 
-**Map layers.** The strip on the right of the 3D view (and beside the operator view's map) shows one kind of data at a time: radiation, air quality, temperature, PM2.5, CO₂, humidity, wind, terrain, or how old each scan is. Data layers keep the whole city standing (buildings solid, rubble and trees slightly see-through) with a slightly see-through coloured map on the ground, where each 5 m cell is coloured by the latest value a trusted machine measured there; cells nobody measured stay small and grey, and only the machines that measure that quantity are shown. Hover a cell for the value, who measured it and when. Readings from machines the verifier has flagged are never painted. The verifier includes these per-cell measurements in its signed map snapshot (`measures`), so a page opened late sees everything measured so far.
+**Map layers.** The strip on the right of the 3D view (and beside the operator view's map) shows one kind of data at a time: radiation, air quality, temperature, PM2.5, CO₂, humidity, wind, terrain, or how old each scan is. Scouts carry a full environmental pack, so every layer fills in as they explore. Look for CO₂ pooling around a collapsed metro vent in Z4, smoke and dust around the landfill fire in Z5, damp air along the river, and the old downtown sheltered from the wind. Data layers keep the whole city standing (buildings solid, rubble and trees slightly see-through) with a slightly see-through coloured map on the ground, where each 5 m cell is coloured by the latest value a trusted machine measured there; cells nobody measured stay small and grey, and only the machines that measure that quantity are shown. Hover a cell for the value, who measured it and when. Readings from machines the verifier has flagged are never painted. The verifier includes these per-cell measurements in its signed map snapshot (`measures`), so a page opened late sees everything measured so far.
+
+**Scripted demo.** `run.py --demo` also runs `tools/demo.py`, which walks through the story step by step and shows a caption for each one in the 3D view:
+
+1. The dark city being mapped
+2. A broken sensor being left out
+3. Forged and tampered messages being rejected
+4. A replayed message being rejected
+5. The radiation and CO₂ layers
+6. A hijacked probe telling a believable lie
+7. The verifier opening an investigation
+8. A scout settling it
+9. The real Arduino field station: smoke in the box turns Z5 unsafe, a forged relay command is rejected, then the operator switches the relay on (only when the board, or `--uno fake`, is reporting)
+10. The kill switch, which also switches the relay off
+11. The closing line
+
+Press Enter for each step. While waiting for the system to react, Enter skips ahead. At the investigation step you can click **Approve** in the 3D view (in operator mode) or press Enter to approve it from the console. `--demo --auto` runs the whole thing by itself in about eight minutes (`run.py --demo --auto --uno fake` includes the field station without the board). With the real board in step 9, blow out a match near the box when the console asks. To run the demo against a stack that's already running, use `python -m tools.demo`; add `--start 9` to rehearse from step 9.
+
+The attacks are the same tools listed further down. One thing is staged, and it's simulation-only: while the hijacked probe is under investigation, untasked scouts keep out of a small circle around it. That way the scout the operator sends is the one that settles it, not one that happens to drive past.
+
+**Recorded run (no network needed).** `run.py --record` saves everything the dashboards receive to `dashboard/recordings/demo.jsonl.gz` (about 0.1 MB a minute). `run.py --demo --auto --record` records the full demo, captions included, and stops when it's done. Open http://localhost:8000/dashboard/city.html?replay=recordings/demo.jsonl.gz to play it back (add `&speed=2` for double speed). The operator view takes the same `?replay=`.
+
+The recording keeps every signed envelope byte for byte, plus the public keys they were signed with, and the dashboards check every signature again on playback. If the live broker can't be reached, the page offers the recording after five seconds. Because a replay is only static files, the `dashboard/` and `keys/trusted.json` files plus a recording can be put on any static host (for example GitHub Pages) as a demo that always works.
+
+The page still loads Three.js, mqtt.js and tweetnacl from public CDNs. Open it once while online so the browser caches them, or copy them into the repo, before relying on it with no internet at all.
 
 **Why the map is honest:** the gateway and dashboard never read `simulators/world.py`. They only know what scouts report, in signed readings, so a forged survey is rejected like any forged reading.
 
