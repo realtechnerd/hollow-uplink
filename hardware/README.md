@@ -2,6 +2,9 @@
 
 One surface machine in the demo is real hardware: an Arduino Uno in a small box with a gas sensor, a climate sensor and a relay. It pretends to be a **BX-1 field station** from a made-up vendor, prints readings over USB in its own format, and knows nothing about Hollow Uplink. The gateway has to discover it, work out what it is from the shape of its data, translate it and sign it, the same as every simulated machine.
 
+| ![The sensor box in front of the laptop running the live 3D view](../docs/img/sensor-box-with-city.webp) | ![The sensor box wired to the breadboard, relay LED lit](../docs/img/sensor-box-wiring.webp) |
+| --- | --- |
+
 ```
 Uno (box) ──USB serial──▶ tools/uno_bridge.py ──surface/raw/<gw>/mqtt/uno-gas-01──▶ gateway ──signed──▶ verifier, dashboards
           ◀──"R1"/"R0"───                     ◀──surface/cmd/<gw>/mqtt/uno-gas-01── (only after the operator's signature checks out)

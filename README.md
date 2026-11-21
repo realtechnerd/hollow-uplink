@@ -21,6 +21,11 @@ Patriot HackFest Fall 2026, Life Underground track (problems #13, #14, #15, and 
 | ![CO₂ map layer: gas pooling around a collapsed metro vent](docs/img/layers.jpg) | ![A scout sent by the operator reaches a hijacked radiation probe and refutes its claim](docs/img/investigation.jpg) |
 | Map layers show radiation, air quality, CO₂ and more, each cell from a trusted machine's latest measurement. | A hijacked probe reports 8 µSv/h, validly signed. A scout the operator sends measures 0.13 there; the claim is refuted and the probe flagged. |
 
+| The real sensor box, live | Inside the build |
+| --- | --- |
+| ![The Arduino sensor box in front of a laptop running the live 3D surface view](docs/img/sensor-box-with-city.webp) | ![The sensor box wired to a breadboard, with the relay's LED lit](docs/img/sensor-box-wiring.webp) |
+| The Arduino field station on the table, reporting into the live 3D view. Its gas sensor sits on the lid. | The Uno on the side of the box, wired to a breadboard. The LED lights when the operator switches the relay on. Details in [`hardware/`](hardware/README.md). |
+
 **See it.** Watch the recorded demo online at https://hollowup.link (every machine simulated, nothing to install). Or run `python run.py --demo` for the live system with the scripted story (about five minutes with `--auto`), or play the recorded run, which needs no broker. Details under [Run it locally](#run-it-locally-windows-powershell-on-macoslinux-use-venvbinpython).
 
 **World assumption:** the machines were built by humans of our era and later, so they speak real protocols (MQTT, Modbus, ROS). The protocols, discovery, translation, signing and dashboard are real code; the machines are simulated, except the Arduino field station (`hardware/`).
