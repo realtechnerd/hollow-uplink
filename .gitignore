@@ -8,3 +8,5 @@ gateway/config.json
 # run.py writes each service's output here
 logs/
 *.part
+# tools/build_public.py: throwaway keys and the raw public recording
+.public-demo/

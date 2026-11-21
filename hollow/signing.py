@@ -23,7 +23,7 @@ def b64(data: bytes) -> str:
 
 def generate_key(gateway_id: str) -> str:
     """Create keys/<gateway_id>.key (private) and add the public key to keys/trusted.json."""
-    config.KEYS_DIR.mkdir(exist_ok=True)
+    config.KEYS_DIR.mkdir(parents=True, exist_ok=True)
     key_path = config.KEYS_DIR / f"{gateway_id}.key"
     if key_path.exists():
         signing_key = load_signing_key(gateway_id)

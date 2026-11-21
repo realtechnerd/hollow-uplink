@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hollow Uplink · Surface</title>
+  <link rel="stylesheet" href="city.css">
+  <link rel="stylesheet" href="layers.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <header class="hud hud-top">
+    <div class="brand">
+      <h1>Hollow Uplink</h1>
+      <span class="sub">Surface view · live</span>
+    </div>
+    <span id="conn" class="pill pill-wait">connecting…</span>
+    <div class="stats">
+      <span><b id="stat-units">0</b> machines</span>
+      <span><b id="stat-verified">0</b> verified</span>
+      <span><b id="stat-rejected">0</b> rejected</span>
+      <span><b id="stat-mapped">0%</b> surface mapped</span>
+    </div>
+    <div class="toggles" role="group" aria-label="Map layers">
+      <label><input type="checkbox" id="t-labels" checked> Labels</label>
+      <label><input type="checkbox" id="t-rad" checked> Sensor fields</label>
+      <label><input type="checkbox" id="t-zones" checked> Zone safety</label>
+      <label><input type="checkbox" id="t-rotate" checked> Orbit</label>
+    </div>
+    <div class="operator-ctl">
+      <span id="op-state" class="op-state">Viewer</span>
+      <button id="op-unlock" class="op-btn" title="Load keys/operator.key to approve tasks and use the kill switch">Unlock operator</button>
+      <input type="file" id="op-file" accept=".key,text/plain" hidden>
+      <label id="op-sandbox-wrap" hidden title="Approved tasks are acknowledged but never sent to the machine"><input type="checkbox" id="op-sandbox"> Sandbox</label>
+      <button id="op-kill" class="op-btn kill" hidden>Kill switch</button>
+    </div>
+    <a id="view-link" class="view-link" href="operator.html">Operator view →</a>
+    <button id="intro-open" class="help-btn" type="button" aria-label="What am I looking at?" title="What am I looking at?">?</button>
+  </header>
+
+  <div class="top-center">
+    <div id="kill-banner" class="kill-banner" hidden>KILL SWITCH ENGAGED · every machine that can move is halted and new tasks are refused</div>
+    <section id="caption" class="hud caption" aria-live="polite" hidden>
+      <span id="caption-step" class="caption-step"></span>
+      <h2 id="caption-title"></h2>
+      <p id="caption-text"></p>
+    </section>
+  </div>
+
+  <aside id="report" class="hud hud-report" aria-label="Surface report">
+    <button id="report-toggle" class="report-toggle" type="button" aria-expanded="false" aria-controls="report-body">
+      <span class="report-head">
+        <span class="report-title">Surface report</span>
+        <span id="report-badge" class="report-badge" hidden></span>
+        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </span>
+      <span id="report-peek" class="report-peek">Waiting for the verifier…</span>
+    </button>
+    <div id="report-body" hidden>
+      <p class="claim"><span>Directorate says</span>“The surface air kills in minutes.”</p>
+      <p class="claim measured"><span>Machines measured</span><b id="report-summary">Waiting for the verifier…</b></p>
+      <div id="investigations"></div>
+      <ol id="report-zones"></ol>
+    </div>
+  </aside>
+
+  <nav id="layers" class="layer-strip hud-layers"></nav>
+  <aside id="layer-legend" class="hud layer-legend hud-legend" aria-live="polite"></aside>
+
+  <aside id="panel" class="hud hud-panel" hidden>
+    <button id="panel-close" class="close" aria-label="Close">×</button>
+    <div id="panel-body"></div>
+  </aside>
+
+  <ol id="ticker" class="hud hud-ticker" aria-live="polite"></ol>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <div id="empty" class="hud hud-empty">Nobody has seen the surface in thirty years. Listening for machines…</div>
+
+  <dialog id="intro" class="intro" aria-labelledby="intro-title">
+    <p class="intro-kicker">Patriot HackFest · Life Underground</p>
+    <h2 id="intro-title">Hollow Uplink</h2>
+    <p class="intro-lead">For thirty years the Directorate has told the Hollow that the surface air kills in minutes.
+      Nobody has been up to check. The machines left behind are still running, and this is what they measure.</p>
+    <ol class="intro-steps">
+      <li><b>The city starts dark.</b> Scout robots map it with LiDAR as they explore. Every tile is a signed scan,
+        and it fades as the scan gets old.</li>
+      <li><b>Surface report</b>, top left: the verifier's plain-language answer for each zone (outposts, domes, suits
+        or not safe), and any claim it has sent a machine to check.</li>
+      <li><b>Map layers</b>, right edge: one measurement at a time, like radiation, air quality or CO₂, from trusted
+        machines only. Grey means nobody has measured there yet.</li>
+      <li><b>Click any machine</b> for its readings and signature check. Forged, tampered or replayed messages are
+        rejected and show in the feed, bottom left.</li>
+    </ol>
+    <p class="intro-note">The machines are simulated. The protocols (MQTT, Modbus TCP), translation, signing and
+      verification are real code.</p>
+    <form method="dialog" class="intro-actions">
+      <button class="intro-go" value="go">Start watching</button>
+    </form>
+  </dialog>
+
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+  <script src="config.js"></script>
+  <script src="uplink.js"></script>
+  <script src="layers.js"></script>
+  <script type="module" src="city.js"></script>
+</body>
+</html>

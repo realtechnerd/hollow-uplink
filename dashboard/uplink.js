@@ -22,9 +22,10 @@
 window.Uplink = (() => {
   const cfg = window.HOLLOW_CONFIG;
   const params = new URLSearchParams(location.search);
-  const replayUrl = params.get("replay");
-  const wantCaptions = replayUrl !== null || params.get("captions") === "1";
   const RECORDING = cfg.recordingUrl ?? "recordings/demo.jsonl.gz";
+  // Public demo build (tools/build_public.py): never touch a broker, always play the recording.
+  const replayUrl = params.get("replay") ?? (cfg.publicDemo ? RECORDING : null);
+  const wantCaptions = replayUrl !== null || params.get("captions") === "1";
   let replayClock = null;           // ms since epoch of the message being replayed
   const now = () => replayClock ?? Date.now();
   const MAX_AGE_S = 120, MAX_SKEW_S = 120;
@@ -308,5 +309,6 @@ window.Uplink = (() => {
   return {
     start, sendCommand, setKillswitch, unlockOperator, lockOperator, isOperator, now,
     isReplay: replayUrl !== null,
+    isPublicDemo: !!cfg.publicDemo,
   };
 })();

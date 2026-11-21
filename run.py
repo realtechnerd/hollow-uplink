@@ -25,6 +25,8 @@ import time
 import webbrowser
 from pathlib import Path
 
+from hollow import config
+
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT / "logs"
 PY = sys.executable
@@ -128,8 +130,8 @@ def kill_tree(proc: subprocess.Popen) -> None:
 
 def ensure_keys() -> None:
     for key in KEYS:
-        if not (ROOT / "keys" / f"{key}.key").exists():
-            print(f"Creating signing key {key} (adds its public key to keys/trusted.json)")
+        if not (config.KEYS_DIR / f"{key}.key").exists():
+            print(f"Creating signing key {key} (adds its public key to {config.TRUSTED_KEYS_FILE.name} in {config.KEYS_DIR})")
             subprocess.run([PY, "-m", "tools.keygen", key], cwd=ROOT, check=True)
 
 

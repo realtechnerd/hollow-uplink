@@ -1232,7 +1232,8 @@ if (!introSeen && !new URLSearchParams(location.search).has("nointro")) openIntr
 if (Uplink.isReplay) {
   // A recording can't take orders: no operator mode, and keep the replay when switching views.
   $("op-unlock").hidden = true;
-  document.querySelector(".brand .sub").textContent = "Surface view · recorded run";
+  document.querySelector(".brand .sub").textContent = Uplink.isPublicDemo
+    ? "Surface view · public demo (simulated machines)" : "Surface view · recorded run";
   $("view-link").href = `index.html${location.search}`;
   $("empty").textContent = "Loading the recorded run…";
 }

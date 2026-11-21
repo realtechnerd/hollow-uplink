@@ -63,6 +63,7 @@ Each teammate runs one edge gateway for their "site". It reads only its own site
 | `tools/uno_bridge.py` | Forwards the Uno's USB serial lines to the site's MQTT network and commands back (`--fake` without a board) |
 | `tools/attack.py` | Simulation only: makes a running sensor tell a believable, validly signed lie |
 | `tools/demo.py` | The scripted demo: runs the story step by step, with captions in the 3D view |
+| `tools/build_public.py` | Builds `public/`, the public demo: a static site playing a run where every machine (the Uno too) is simulated, signed with throwaway keys, with no broker |
 | `tools/record.py` | Records everything the dashboards receive, for replay with no broker (`dashboard/recordings/`) |
 | `run.py` | Starts the whole local stack with one command (and the demo, and a recording) |
 | `tests/` | Unit and end-to-end tests: `python -m unittest` |
@@ -131,6 +132,8 @@ The attacks are the same tools listed further down. One thing is staged, and it'
 **Recorded run (no network needed).** `run.py --record` saves everything the dashboards receive to `dashboard/recordings/demo.jsonl.gz` (about 0.1 MB a minute). `run.py --demo --auto --record` records the full demo, captions included, and stops when it's done. Open http://localhost:8000/dashboard/city.html?replay=recordings/demo.jsonl.gz to play it back (add `&speed=2` for double speed). The operator view takes the same `?replay=`.
 
 The recording keeps every signed envelope byte for byte, plus the public keys they were signed with, and the dashboards check every signature again on playback. If the live broker can't be reached, the page offers the recording after five seconds. Because a replay is only static files, the `dashboard/` and `keys/trusted.json` files plus a recording can be put on any static host (for example GitHub Pages) as a demo that always works.
+
+**Public demo (for the open internet).** `python -m tools.build_public` builds `public/`, the version to put online. It records a fresh full scripted run (about five minutes) where every machine is simulated, including the Arduino field station (`--uno fake`). The run is signed with throwaway keys made for that build (`.public-demo/keys`, git-ignored), and the build refuses to finish if any signer matches `keys/trusted.json`. The site's `config.js` has no broker address, so the pages go straight to the recording, with no operator mode and nothing to connect to. None of our devices, brokers or keys are reachable from it. Upload `public/` to any static host. To try it locally, run `python -m http.server -d public 8080` and open http://localhost:8080/. `--reuse` rebuilds the site without recording again. Pushing a rebuilt `public/` to main publishes it at https://realtechnerd.github.io/hollow-uplink/ (`.github/workflows/pages.yml`; Pages source set to GitHub Actions).
 
 The page still loads Three.js, mqtt.js and tweetnacl from public CDNs. Open it once while online so the browser caches them, or copy them into the repo, before relying on it with no internet at all.
 

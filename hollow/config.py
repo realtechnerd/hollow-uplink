@@ -27,5 +27,6 @@ MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD") or None
 MQTT_TLS = os.environ.get("MQTT_TLS", "0") == "1"
 GATEWAY_ID = os.environ.get("GATEWAY_ID", "gw-local")
 
-KEYS_DIR = REPO_ROOT / "keys"
+# HOLLOW_KEYS_DIR points everything at another key set (tools/build_public.py uses throwaway keys).
+KEYS_DIR = Path(os.environ["HOLLOW_KEYS_DIR"]) if os.environ.get("HOLLOW_KEYS_DIR") else REPO_ROOT / "keys"
 TRUSTED_KEYS_FILE = KEYS_DIR / "trusted.json"

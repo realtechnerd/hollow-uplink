@@ -15,7 +15,8 @@ def main() -> None:
     gateway_id = sys.argv[1] if len(sys.argv) > 1 else config.GATEWAY_ID
     public = signing.generate_key(gateway_id)
     print(f"{gateway_id} public key: {public}")
-    print(f"Commit {config.TRUSTED_KEYS_FILE.relative_to(config.REPO_ROOT)} so others trust it.")
+    if config.TRUSTED_KEYS_FILE.is_relative_to(config.REPO_ROOT / "keys"):
+        print(f"Commit {config.TRUSTED_KEYS_FILE.relative_to(config.REPO_ROOT)} so others trust it.")
 
 
 if __name__ == "__main__":
