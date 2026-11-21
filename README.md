@@ -6,6 +6,9 @@ Patriot HackFest Fall 2026, Life Underground track (problems #13, #14, #15, and 
 
 ![Smoke in the real Arduino sensor box turns zone Z5 unsafe, with the verifier's plain-language verdict](docs/img/field-station.jpg)
 
+**Video:**
+https://youtu.be/852fGeEvi2g
+
 **The problem.** For thirty years the Directorate has told the Hollow that the surface air kills in minutes. Nobody has gone up to check. Machines left on the surface are still running, but they're from dozens of vendors, they speak different protocols, and nobody knows which ones still tell the truth. Any one of them could be broken, or quietly made to lie.
 
 **Hollow Uplink is a universal translator for those machines, and a referee for what they say.** It answers one question, "is it safe up there, and where?", in a way nobody has to take on faith:
